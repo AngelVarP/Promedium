@@ -4,29 +4,31 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo; // <-- (1) Importa esto
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Evaluacion extends Model
 {
     use HasFactory;
 
     /**
-     * (2) Añadimos esta variable $fillable
-     * Define los campos que SÍ se pueden guardar masivamente desde un formulario.
+     * ¡'FILLABLE' 'CORREGIDO'!
+     * 'Le 'decimos' 'que 'ahora' 'acepte' 'el 'ID' 'de 'la 'tabla' 'puente'.
      */
     protected $fillable = [
-        'curso_id',
+        'ciclo_curso_id', // <-- ¡'CAMBIO' 'CLAVE'!
         'nombre_personalizado',
         'peso',
         'nota',
     ];
 
     /**
-     * (3) Añadimos la relación
-     * Una Evaluación pertenece a un Curso
+     * ¡'RELACIÓN' 'CORREGIDA'!
+     * 'Una 'Evaluación' 'le 'pertenece' 'a 'UNA' 'instancia' 'de 'CicloCurso'.
      */
-    public function curso(): BelongsTo
+    public function cicloCurso(): BelongsTo
     {
-        return $this->belongsTo(Curso::class);
+        return $this->belongsTo(CicloCurso::class);
     }
+
+    // ¡'VOLAMOS' 'LA 'FUNCIÓN' 'curso()' 'ANTIGUA'!
 }

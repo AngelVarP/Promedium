@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\CicloController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\CursoController;
 
 
 // (2) ¡LA 'NUEVA' (NUEVA) 'RUTA 'PRINCIPAL'' (RUTA PRINCIPAL)!
@@ -10,3 +11,5 @@ use App\Http\Controllers\DashboardController;
 Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
 
 Route::resource('/ciclos', CicloController::class);
+
+Route::resource('/cursos', CursoController::class);
