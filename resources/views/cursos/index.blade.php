@@ -89,11 +89,14 @@
                         <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium
                                    flex justify-end items-center space-x-4">
                             
-                            <a href="#" class="text-indigo-600 hover:text-indigo-900">
+                            {{-- 1. 'Botón' 'EDITAR' --}}
+                            <a href="{{ route('cursos.edit', $curso) }}" class="text-indigo-600 hover:text-indigo-900">
                                 Editar
                             </a>
 
-                            <form action="#" method="POST" onsubmit="return confirm('¿Estás seguro de que quieres volar este curso?');">
+                            {{-- 2. 'Botón' 'ELIMINAR' --}}
+                            <form action="{{ route('cursos.destroy', $curso) }}" method="POST"
+                                  onsubmit="return confirm('¿Estás seguro de que quieres volar este curso? Esto es irreversible.');">
                                 @csrf
                                 @method('DELETE')
                                 <button type="submit" class="text-red-600 hover:text-red-900">
