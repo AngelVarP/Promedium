@@ -2,44 +2,98 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Ciclo; // <-- (1) ¡Importante! Traemos el Modelo
-use Illuminate\Http\Request;
-use Illuminate\View\View; // <-- (2) Importamos la 'View' pa' que sepa qué retornar
+// ¡AQUÍ 'ESTÁ' 'EL 'ARREGLO'!
+// 'Le 'decimos' 'que 'use' 'el 'Controlador' 'de 'verdad' 'de 'Laravel'
+// 'y 'lo 'renombramos' 'a 'BaseController' 'pa' 'que 'no 'se 'cruce''
+use Illuminate\Routing\Controller as BaseController; 
 
-class CicloController extends Controller
+use App\Models\Ciclo;
+use Illuminate\Http\Request;
+use Illuminate\View\View;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Validation\Rule;
+
+// ¡'Y 'AQUÍ' 'USAMOS' 'EL 'DE 'VERDAD' (EL 'BaseController')!
+class CicloController extends BaseController
 {
     /**
-     * Display a listing of the resource.
+     * 'Muestra' 'la 'lista'' 'de 'ciclos'.
      */
-    public function index(): View // <-- (3) Le decimos que esta función SÍ O SÍ devuelve una Vista
+    public function index(): View
     {
-        // (4) Esta es la magia:
-        // Va al modelo Ciclo y le dice "dame todo lo que tengas"
-        // y lo ordena por el más nuevo (desc)
-        $ciclos = Ciclo::latest()->get(); 
-
-        // (5) Retorna la vista y le pasa los datos:
-        // "Oye vista 'ciclos.index', toma esta variable $ciclos y muéstrala"
+        $ciclos = Ciclo::latest()->get();
+        
         return view('ciclos.index', [
             'ciclos' => $ciclos,
         ]);
     }
 
     /**
-     * Show the form for creating a new resource.
+     * 'Muestra' 'el 'formulario'' 'para 'crear' 'un 'ciclo' 'nuevo'.
      */
-    public function create()
+    public function create(): View
     {
-        // Aún no lo usamos
+        return view('ciclos.create');
     }
 
     /**
-     * Store a newly created resource in storage.
+     * 'Guarda' 'el 'ciclo' 'nuevo' 'en 'la 'BD''.
      */
-    public function store(Request $request)
+    public function store(Request $request): RedirectResponse
     {
-        // Aún no lo usamos
+        $validated = $request->validate([
+            'nombre' => 'required|string|max:255|unique:ciclos',
+        ]);
+
+        Ciclo::create($validated);
+
+        return redirect()->route('ciclos.index');
     }
-    
-    // ... (El resto de funciones quedan vacías por ahora)
+
+    /**
+     * 'Muestra' 'un 'ciclo'' 'específico'.
+     */
+    public function show(Ciclo $ciclo)
+    {
+        // 'Aún' 'no 'lo 'usamos'
+    }
+
+    /**
+     * 'Muestra' 'el 'formulario'' 'para 'editar' 'un 'ciclo'.
+     */
+    public function edit(Ciclo $ciclo): View
+    {
+        return view('ciclos.edit', [
+            'ciclo' => $ciclo,
+        ]);
+    }
+
+    /**
+     * 'Actualiza' 'el 'ciclo'' 'en 'la 'BD''.
+     */
+    public function update(Request $request, Ciclo $ciclo): RedirectResponse
+    {
+        $validated = $request->validate([
+            'nombre' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('ciclos')->ignore($ciclo->id),
+            ],
+        ]);
+
+        $ciclo->update($validated);
+
+        return redirect()->route('ciclos.index');
+    }
+
+    /**
+     * 'Borra' 'el 'ciclo'' 'de 'la 'BD''.
+     */
+    public function destroy(Ciclo $ciclo): RedirectResponse
+    {
+        $ciclo->delete();
+
+        return redirect()->route('ciclos.index');
+    }
 }

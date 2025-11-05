@@ -8,16 +8,21 @@
     {{-- Fuentes de Google --}}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    {{-- =============================================== --}}
+    {{-- ¡AQUÍ ESTÁ EL 'NUEVO' 'FAVICON' 'DE 'PROMEDIUM'! --}}
+    {{-- =============================================== --}}
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%234f46e5'><path d='M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.906 59.906 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.717 50.717 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5' /></svg>">
+
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 
     {{-- =============================================== --}}
-    {{-- Custom styles inspired by Pasajes24-7 --}}
+    {{-- ¡TU 'ESTILO' 'CALCADO' 'DE 'PASAJES24-7'! --}}
     {{-- =============================================== --}}
     <style>
         body { 
-            font-family: 'Inter', sans-serif; 
+            font-family: 'Figtree', sans-serif; 
             background-color: #ffffff;
         }
         .admin-sidebar { 
@@ -31,18 +36,18 @@
         .admin-sidebar a:hover { 
             background-color: #ffffff; /* bg-white */
             color: #111827; /* text-gray-900 */
-            transform: translateX(4px); /* ¡ESTA ES LA 'NUEVA' (NUEVA) 'LÍNEA' (LÍNEA)! */
+            transform: translateX(4px);
         }
         .admin-sidebar a.active { 
-            color: #4f46e5; /* Indigo accent color */
+            color: #4f46e5; /* ¡Tu 'acento' 'Índigo'! */
             background-color: #ffffff; /* bg-white */
-            border-left: 4px solid #4f46e5; /* Indigo border */
+            border-left: 4px solid #4f46e5; /* ¡Tu 'borde' 'Índigo'! */
             padding-left: calc(1rem - 4px); 
             font-weight: 600;
         }
         .header-title {
              color: #111827; /* text-gray-900 */
-             font-weight: 700;
+             font-weight: 500;
         }
         .quick-link-card {
             background-color: #ffffff;
@@ -53,7 +58,7 @@
         .quick-link-card:hover {
             transform: translateY(-4px);
             box-shadow: 0 6px 15px rgba(30, 41, 59, 0.07);
-            border-color: #6366f1; /* Indigo border on hover */
+            border-color: #6366f1; /* ¡Tu 'borde' 'Índigo' 'al 'hover''! */
         }
     </style>
 </head>
@@ -61,7 +66,7 @@
 
     <div class="flex min-h-screen">
         
-        {{-- Sidebar menu --}}
+        {{-- EL SIDEBAR (MENÚ) --}}
         <aside class="admin-sidebar fixed top-0 left-0 z-50 w-64 h-screen pt-5
                     md:translate-x-0 -translate-x-full transition-transform duration-300">
             <div class="flex flex-col h-full">
@@ -71,11 +76,8 @@
                     </h1>
                 </div>
                 
-                {{-- Line 55 (corrected) --}}
                 <nav class="grow px-4 space-y-2">
-                    
-                    {{-- (1) Link al Dashboard --}}
-                    {{-- 'request()->routeIs('dashboard')' 'pregunta' (asks): "¿'Estamos' (Are we) 'en 'la 'ruta'' (in the route) 'dashboard'?" --}}
+                    {{-- Link al Dashboard --}}
                     <a href="{{ route('dashboard') }}" 
                        class="flex items-center space-x-3 px-5 py-3 rounded-lg 
                               {{ request()->routeIs('dashboard') ? 'active' : '' }}">
@@ -83,7 +85,7 @@
                         <span>Dashboard</span>
                     </a>
 
-                    {{-- (2) Link a Ciclos --}}
+                    {{-- Link a Ciclos --}}
                     <a href="{{ route('ciclos.index') }}" 
                        class="flex items-center space-x-3 px-5 py-3 rounded-lg
                               {{ request()->routeIs('ciclos.index') ? 'active' : '' }}">
@@ -94,7 +96,7 @@
             </div>
         </aside>
 
-        {{-- 'CONTENIDO' (CONTENIDO) 'PRINCIPAL' (PRINCIPAL) --}}
+        {{-- 'CONTENIDO' 'PRINCIPAL' --}}
         <div class="flex-1 flex flex-col md:ml-64">
 
             {{-- Header Superior --}}
@@ -105,12 +107,12 @@
                     </h1>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <span class="text-sm text-gray-600">Hola, Angelito</span>
+                    <span class="text-sm text-gray-600">Hola, Angel</span>
                 </div>
             </header>
 
-            {{-- Line 83 (corrected) --}}
-            <main class="grow p-6 lg:p-10 bg-white"> {{-- <-- 'grow' --}}
+            {{-- 'Área' 'de 'Contenido'' --}}
+            <main class="grow p-6 lg:p-10 bg-white">
                 {{ $slot }}
             </main>
         </div>

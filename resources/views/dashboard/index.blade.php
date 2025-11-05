@@ -9,7 +9,7 @@
     {{-- =============================================== --}}
     <div class="mb-8">
         {{-- 'Cambiamos' (Cambiamos) 'a 'text-4xl font-light'' (a 'text-4xl font-light') --}}
-        <h2 class="text-4xl font-light text-gray-800">
+        <h2 class="text-3xl font-bold text-gray-900">
             ¡Bienvenido de vuelta, Angel!
         </h2>
         <p class="text-gray-500 mt-2">Aquí tienes tu resumen al toque.</p>

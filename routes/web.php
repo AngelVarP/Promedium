@@ -9,5 +9,4 @@ use App\Http\Controllers\DashboardController;
 // Apunta al Dashboard
 Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
 
-// (3) ¡LA 'RUTA 'DE 'CICLOS''' (RUTA DE CICLOS) 'AHORA 'VIVE' (AHORA VIVE) 'EN '/ciclos' (EN '/ciclos')!
-Route::get('/ciclos', [CicloController::class, 'index'])->name('ciclos.index');
+Route::resource('/ciclos', CicloController::class);
