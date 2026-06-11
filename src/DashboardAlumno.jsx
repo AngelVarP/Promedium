@@ -876,8 +876,8 @@ export default function DashboardAlumno() {
           )}
         </div>
 
-        <div className="flex flex-col sm:flex-row justify-between items-center bg-white/[0.02] border border-white/[0.05] rounded-2xl p-2 mb-6 shadow-xl backdrop-blur-md gap-2">
-          <div className="flex gap-2 w-full sm:w-auto">
+        <div className="flex flex-col lg:flex-row justify-between items-center bg-white/[0.02] border border-white/[0.05] rounded-2xl p-2 mb-6 shadow-xl backdrop-blur-md gap-2">
+          <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
             <button 
               onClick={() => setTabActiva('cursos')}
               className={`flex-1 sm:flex-none px-6 py-3.5 rounded-xl font-black text-[11px] tracking-widest uppercase transition-all ${tabActiva === 'cursos' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 shadow-[0_0_15px_rgba(34,211,238,0.2)]' : 'bg-transparent text-slate-500 hover:text-white hover:bg-white/5 border border-transparent'}`}
@@ -892,7 +892,7 @@ export default function DashboardAlumno() {
             </button>
           </div>
 
-          <div className="flex gap-2 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto mt-2 lg:mt-0">
             <button 
               onClick={abrirMapaCurricular}
               className="w-full sm:w-auto relative group overflow-hidden px-6 py-3.5 rounded-xl bg-[#080c14] border border-emerald-500/30 text-emerald-400 font-black text-[11px] tracking-widest uppercase transition-all hover:border-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.15)] flex items-center justify-center gap-2"
@@ -1019,7 +1019,7 @@ export default function DashboardAlumno() {
               </div>
 
               {/* Gauge + Real vs Sim (Centrado) */}
-              <div className="flex items-center gap-8 my-4 md:my-0">
+              <div className="flex flex-col lg:flex-row items-center gap-8 my-4 md:my-0">
                 <div className="scale-75 origin-center md:scale-100 flex items-center justify-center">
                   <CircularGauge value={promedioSimulado} />
                 </div>
@@ -1282,7 +1282,7 @@ export default function DashboardAlumno() {
             </div>
             
             {/* Action Bar Carrito */}
-            <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-4 flex justify-between items-center">
+            <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-4 flex flex-col sm:flex-row justify-between items-center gap-4 text-center sm:text-left">
               <span className="text-sm font-bold text-white"><span className="text-blue-400 font-black">{carrito.length}</span> cursos listos para matricular en {periodoSeleccionado}</span>
               <button 
                 onClick={confirmarMatriculaMasiva}
@@ -1307,7 +1307,7 @@ export default function DashboardAlumno() {
                 <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"/>
                 <h3 className="text-sm md:text-base font-black tracking-[0.25em] uppercase text-emerald-400">Ruta Académica (Skill Tree)</h3>
               </div>
-              <div className="flex gap-6 my-4 md:my-0 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+              <div className="flex flex-wrap justify-center gap-4 md:gap-6 my-4 md:my-0 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                 <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full bg-emerald-500/20 border border-emerald-500"></div>Aprobado</div>
                 <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full bg-cyan-500/20 border border-cyan-500"></div>En Curso</div>
                 <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full bg-amber-500/20 border border-amber-500"></div>Desbloqueado</div>
