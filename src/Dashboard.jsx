@@ -624,9 +624,19 @@ export default function Dashboard() {
               <span className="text-[9px] text-amber-400/80 font-bold tracking-[0.2em] uppercase">Admin</span>
             </div>
           </div>
-          <button onClick={() => supabase.auth.signOut().then(() => navigate('/'))} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/[0.06] text-slate-500 hover:text-white hover:border-white/10 transition-all text-[10px] font-bold tracking-widest uppercase">
-            Salir
-          </button>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => navigate('/dashboard')}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-500/40 text-cyan-400 hover:text-white hover:border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.15)] transition-all text-[10px] font-black uppercase tracking-wider cursor-pointer"
+              title="Volver a mi Vista de Alumno"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+              <span>🎓 Mi Vista de Alumno</span>
+            </button>
+            <button onClick={() => supabase.auth.signOut().then(() => navigate('/'))} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/[0.06] text-slate-500 hover:text-white hover:border-white/10 transition-all text-[10px] font-bold tracking-widest uppercase">
+              Salir
+            </button>
+          </div>
         </div>
       </nav>
 

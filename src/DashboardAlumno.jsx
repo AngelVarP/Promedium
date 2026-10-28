@@ -286,7 +286,7 @@ const getCurrentPeriod = () => {
   return `${year}-${month < 7 ? '1' : '2'}`
 }
 
-export default function DashboardAlumno() {
+export default function DashboardAlumno({ esAdmin: esAdminProp }) {
   const navigate = useNavigate()
   const [cursos, setCursos] = useState([])
   const [cargando, setCargando] = useState(true)
@@ -298,6 +298,9 @@ export default function DashboardAlumno() {
   const [perfil, setPerfil] = useState(null)
   const [carrerasDisponibles, setCarrerasDisponibles] = useState([])
   const [nombreInput, setNombreInput] = useState('')
+
+  const CORREOS_ADMIN = ['test@test.com', 'luis.vargas.p@uni.pe']
+  const esAdmin = Boolean(esAdminProp || CORREOS_ADMIN.map(e => e.toLowerCase()).includes((userEmail || '').toLowerCase()))
 
   // Diccionario Dinámico de Sistemas de Evaluación
   const [sistemasDict, setSistemasDict] = useState({})
@@ -907,12 +910,24 @@ export default function DashboardAlumno() {
               <span className="text-xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-white/50">Promedium</span>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             {perfil && perfil.nombre_completo ? (
               <span className="hidden sm:block text-xs text-white font-bold tracking-wide">Hola, {perfil.nombre_completo.split(' ')[0]}</span>
             ) : (
               <span className="hidden sm:block text-[10px] text-slate-600 font-mono">{userEmail}</span>
             )}
+
+            {esAdmin && (
+              <button 
+                onClick={() => navigate('/admin')}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/40 text-amber-400 hover:text-white hover:border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.15)] transition-all text-[10px] font-black uppercase tracking-wider cursor-pointer"
+                title="Cambiar al Panel de Administrador"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                <span>🛡️ Modo Admin</span>
+              </button>
+            )}
+
             <button onClick={() => supabase.auth.signOut().then(() => navigate('/'))} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/[0.06] text-slate-500 hover:text-white hover:border-white/10 transition-all text-[10px] font-bold tracking-widest uppercase">
               Salir
             </button>

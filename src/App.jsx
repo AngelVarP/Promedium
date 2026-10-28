@@ -217,6 +217,11 @@ function LoginRegister() {
   )
 }
 
+export const CORREOS_ADMIN = [
+  "test@test.com",
+  "luis.vargas.p@uni.pe"
+]
+
 function App() {
   const [userEmail, setUserEmail] = useState(null)
   const [cargandoApp, setCargandoApp] = useState(true)
@@ -232,7 +237,7 @@ function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  const MI_CORREO_ADMIN = "test@test.com"
+  const esAdmin = CORREOS_ADMIN.map(e => e.toLowerCase()).includes((userEmail || '').toLowerCase())
 
   if (cargandoApp) {
     return (
@@ -250,11 +255,21 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<LoginRegister />} />
+        
+        {/* Panel Alumno (disponible para todos, con botón admin si tiene poderes) */}
         <Route path="/dashboard" element={
           <RutaProtegida>
-            {userEmail === MI_CORREO_ADMIN ? <Dashboard /> : <DashboardAlumno />}
+            <DashboardAlumno esAdmin={esAdmin} />
           </RutaProtegida>
         } />
+
+        {/* Panel Administrador (exclusivo para usuarios con poderes) */}
+        <Route path="/admin" element={
+          <RutaProtegida>
+            {esAdmin ? <Dashboard /> : <Navigate to="/dashboard" replace />}
+          </RutaProtegida>
+        } />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
