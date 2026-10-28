@@ -22,41 +22,52 @@ function notaColor(nota) {
 
 const parsearCamposRequeridos = (sys) => {
   if (!sys) return []
-  const form = sys.formula.toUpperCase()
+  const form = (sys.formula || '').toUpperCase()
   const campos = []
-  if (sys.usa_practicas || form.includes('SUM_PC3') || form.includes('SUM_PC5') || form.includes('PP_PC') || form.includes('PP_PC6') || form.includes('PP_MIXTO') || /\bPP\b/.test(form)) {
-    let pcCount = 4;
-    if (form.includes('PP_MIXTO_5X5')) pcCount = 5;
-    else if (form.includes('SUM_PC5') || form.includes('PP_PC6')) pcCount = 6;
-    for(let i=1; i<=pcCount; i++) campos.push({ id: `PC${i}`, label: `Práctica ${i}` })
+
+  // Prácticas Calificadas (PCs)
+  if (sys.usa_practicas || form.includes('SUM_PC3') || form.includes('SUM_PC5') || form.includes('PP_PC') || form.includes('PP_PC6') || form.includes('PP_MIXTO') || /\bPP\b/.test(form) || /\bPC\b/.test(form)) {
+    let pcCount = 4
+    if (form.includes('PP_MIXTO_5X5') || form.includes('5PC') || form.includes('PC5')) pcCount = 5
+    else if (form.includes('SUM_PC5') || form.includes('PP_PC6') || form.includes('6PC') || form.includes('PC6')) pcCount = 6
+    for (let i = 1; i <= pcCount; i++) campos.push({ id: `PC${i}`, label: `Práctica ${i}` })
   } else {
-    for(let i=1; i<=6; i++) {
+    for (let i = 1; i <= 6; i++) {
       if (form.includes(`PC${i}`)) campos.push({ id: `PC${i}`, label: `Práctica ${i}` })
     }
   }
+
+  // Laboratorios (PL / Labs)
+  if (form.includes('LAB1') || form.includes('PP_LAB') || form.includes('PP_MIXTO') || /\bPL\b/.test(form)) {
+    const labCount = form.includes('PP_MIXTO_5X5') ? 5 : 6
+    for (let i = 1; i <= labCount; i++) campos.push({ id: `LAB${i}`, label: `Laboratorio ${i}` })
+  }
+
+  // Trabajos e Investigación
+  if (form.includes('TI')) campos.push({ id: 'TI', label: 'Trabajo Investigación' })
   if (form.includes('MON1')) campos.push({ id: 'MON1', label: 'Monografía 1' })
   if (form.includes('MON2')) campos.push({ id: 'MON2', label: 'Monografía 2' })
-  if (form.includes('LAB1') || form.includes('PP_LAB') || form.includes('PP_MIXTO')) {
-    const labCount = form.includes('PP_MIXTO_5X5') ? 5 : 8;
-    for(let i=1; i<=labCount; i++) campos.push({ id: `LAB${i}`, label: `Laboratorio ${i}` })
-  }
+  if (form.includes('MON') && !form.includes('MON1') && !form.includes('MON2')) campos.push({ id: 'MON', label: 'Monografía' })
+
+  // Exámenes y Sustitutorio
   if (form.includes('EP')) campos.push({ id: 'EP', label: 'Examen Parcial' })
   if (form.includes('EF')) campos.push({ id: 'EF', label: 'Examen Final' })
-  if (form.includes('EP') && form.includes('EF')) campos.push({ id: 'ES', label: 'Sustitutorio' })
+  if (form.includes('EP') || form.includes('EF')) campos.push({ id: 'ES', label: 'Sustitutorio' })
   if (form.includes('PF')) campos.push({ id: 'PF', label: 'Promedio Final' })
+
   return campos
 }
 
 const evaluarSistema = (sys, notas) => {
   if (!sys) return null
   try {
-    let formula = sys.formula.toUpperCase()
+    let formula = (sys.formula || '').toUpperCase()
     
     // PC logic (SUM_PC3, PP_PC, PP legacy, SUM_PC5, PP_PC6)
     let sum3 = 0
     let sum5 = 0
     const is5x5 = formula.includes('PP_MIXTO_5X5')
-    const is6pc = formula.includes('SUM_PC5') || formula.includes('PP_PC6')
+    const is6pc = formula.includes('SUM_PC5') || formula.includes('PP_PC6') || formula.includes('6PC')
     if (sys.usa_practicas || formula.includes('SUM_PC3') || formula.includes('SUM_PC5') || formula.includes('PP_PC') || formula.includes('PP_PC6') || formula.includes('PP_MIXTO') || /\bPP\b/.test(formula)) {
       if (is6pc) {
         const pcs = [1,2,3,4,5,6].map(i => parseFloat(notas[`PC${i}`]) || 0).sort((a,b) => b - a)
@@ -70,26 +81,26 @@ const evaluarSistema = (sys, notas) => {
       }
     }
 
-    // LAB logic (PP_LAB)
+    // LAB logic (PP_LAB / PL)
     let sum6 = 0
-    if (formula.includes('PP_LAB') || formula.includes('LAB1') || formula.includes('PP_MIXTO')) {
+    if (formula.includes('PP_LAB') || formula.includes('LAB1') || formula.includes('PP_MIXTO') || /\bPL\b/.test(formula)) {
       if (is5x5) {
         const labs = [1,2,3,4,5].map(i => parseFloat(notas[`LAB${i}`]) || 0).sort((a,b) => b - a)
         sum6 = labs[0] + labs[1] + labs[2] + labs[3]
       } else {
         const labs = [1,2,3,4,5,6,7,8].map(i => parseFloat(notas[`LAB${i}`]) || 0).sort((a,b) => b - a)
-        sum6 = labs[0] + labs[1] + labs[2] + labs[3] + labs[4] + labs[5]
+        sum6 = labs[0] + labs[1] + labs[2] + labs[3] + labs[4]
       }
     }
 
-    // Inyección nativa segura
     const script = `
       const SUM_PC3 = ${sum3};
       const SUM_PC5 = ${sum5};
       const PP_PC = ${is5x5 ? sum3 / 4 : sum3 / 3};
-      const PP = ${is5x5 ? sum3 / 4 : sum3 / 3};
+      const PP = ${is5x5 ? sum3 / 4 : (is6pc ? sum5 / 5 : sum3 / 3)};
       const PP_PC6 = ${sum5 / 5};
-      const PP_LAB = ${is5x5 ? sum6 / 4 : sum6 / 6};
+      const PP_LAB = ${sum6 / 5};
+      const PL = ${sum6 / 5};
       const PP_MIXTO = ${(sum3 + sum6) / 9};
       const PP_MIXTO_5X5 = ${(sum3 + sum6) / 8};
       
@@ -115,6 +126,8 @@ const evaluarSistema = (sys, notas) => {
       const PC4 = ${parseFloat(notas.PC4) || 0};
       const PC5 = ${parseFloat(notas.PC5) || 0};
       const PC6 = ${parseFloat(notas.PC6) || 0};
+      const TI = ${parseFloat(notas.TI) || parseFloat(notas.MON1) || 0};
+      const MON = ${parseFloat(notas.MON) || parseFloat(notas.MON1) || 0};
       const MON1 = ${parseFloat(notas.MON1) || 0};
       const MON2 = ${parseFloat(notas.MON2) || 0};
       const PF = ${parseFloat(notas.PF) || 0};
@@ -315,14 +328,77 @@ export default function DashboardAlumno() {
       setCargando(true)
       const { data, error } = await supabase.from('cursos').select('*').eq('user_id', userId)
       if (error) throw error
+
+      // Traer catálogo maestro y sistemas actualizados para sincronizar en caliente
+      const [resCat, resSist] = await Promise.all([
+        supabase.from('catalogo_cursos').select('nombre, creditos, ciclo_sugerido, sistema_evaluacion'),
+        supabase.from('sistemas_evaluacion').select('*')
+      ])
+
+      const catalogoMap = {}
+      if (resCat.data) {
+        resCat.data.forEach(c => {
+          if (c.nombre) catalogoMap[c.nombre.trim().toLowerCase()] = c
+        })
+      }
+
+      const freshSistemasDict = {}
+      if (resSist.data) {
+        resSist.data.forEach(s => { freshSistemasDict[s.id] = s })
+      }
+      if (!freshSistemasDict['Libre']) freshSistemasDict['Libre'] = { id: 'Libre', nombre: 'Ingreso Libre', formula: 'PF', usa_practicas: false }
+      setSistemasDict(freshSistemasDict)
+
+      // Auto-sincronizar cursos existentes si hubo cambios en catálogo o fórmulas
+      const promesasSync = []
+      const cursosSincronizados = (data || []).map(c => {
+        const cat = catalogoMap[c.nombre?.trim()?.toLowerCase()]
+        let modificado = false
+        const payloadUpdate = {}
+
+        // Sincronizar sistema de evaluación si el catálogo cambió
+        if (cat?.sistema_evaluacion && cat.sistema_evaluacion !== c.sistema_evaluacion) {
+          c.sistema_evaluacion = cat.sistema_evaluacion
+          payloadUpdate.sistema_evaluacion = cat.sistema_evaluacion
+          modificado = true
+        }
+
+        // Sincronizar créditos si el catálogo cambió
+        if (cat?.creditos && cat.creditos !== c.creditos) {
+          c.creditos = cat.creditos
+          payloadUpdate.creditos = cat.creditos
+          modificado = true
+        }
+
+        // Recalcular dinámicamente el promedio según la fórmula actual si hay notas ingresadas
+        const sys = freshSistemasDict[c.sistema_evaluacion || 'Libre']
+        if (sys && c.notas_detalle && Object.keys(c.notas_detalle).length > 0) {
+          const liveProm = evaluarSistema(sys, c.notas_detalle)
+          if (liveProm !== null && liveProm !== parseFloat(c.promedio)) {
+            c.promedio = liveProm
+            payloadUpdate.promedio = liveProm
+            modificado = true
+          }
+        }
+
+        if (modificado) {
+          promesasSync.push(supabase.from('cursos').update(payloadUpdate).eq('id', c.id))
+        }
+
+        return c
+      })
+
+      if (promesasSync.length > 0) {
+        Promise.all(promesasSync).catch(e => console.warn('Sync background err:', e))
+      }
       
-      const uniquePeriods = [...new Set((data || []).map(c => c.periodo))].sort((a,b) => b.localeCompare(a))
+      const uniquePeriods = [...new Set(cursosSincronizados.map(c => c.periodo))].sort((a,b) => b.localeCompare(a))
       if (!uniquePeriods.includes(currentPeriod)) uniquePeriods.unshift(currentPeriod)
       setPeriodosDinamicos(uniquePeriods)
 
       // ---- CÁLCULO DE PROGRESIÓN (POR PERIODO HISTÓRICO) ----
       const agrupadoPorPeriodo = {}
-      ;(data || []).forEach(c => {
+      cursosSincronizados.forEach(c => {
          const nota = parseFloat(c.promedio)
          if (!isNaN(nota) && c.creditos > 0) {
             if (!agrupadoPorPeriodo[c.periodo]) agrupadoPorPeriodo[c.periodo] = { sum: 0, creditos: 0 }
@@ -342,11 +418,11 @@ export default function DashboardAlumno() {
       })
       setProgresoData(chartData)
 
-      const cursosPeriodo = (data || []).filter(c => c.periodo === periodoSeleccionado)
+      const cursosPeriodo = cursosSincronizados.filter(c => c.periodo === periodoSeleccionado)
       setCursos(cursosPeriodo)
       
       const initSims = {}
-      ;(cursosPeriodo || []).forEach(c => {
+      cursosPeriodo.forEach(c => {
         const detalle = c.notas_detalle || {}
         initSims[c.id] = { ...detalle }
       })

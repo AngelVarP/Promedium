@@ -52,6 +52,200 @@ export default function Dashboard() {
   const [mostrarModalSist, setMostrarModalSist] = useState(false)
   const [sistMaestro, setSistMaestro] = useState(null)
 
+  // Constructor interactivo de sistemas de evaluación
+  const [modoVisualSist, setModoVisualSist] = useState(true)
+  const [configVisualSist, setConfigVisualSist] = useState({
+    usaEP: true, pesoEP: 1,
+    usaEF: true, pesoEF: 2,
+    usaPP: true, pesoPP: 1, pcCount: 4, pcDrop: 1,
+    usaPL: false, pesoPL: 1, labCount: 6, labDrop: 1,
+    usaTI: false, pesoTI: 1,
+    permiteES: true,
+    divisorManual: false,
+    divisorPersonalizado: 4
+  })
+  const [simuladorSist, setSimuladorSist] = useState({
+    EP: 14, EF: 12, PC1: 15, PC2: 10, PC3: 16, PC4: 18,
+    LAB1: 14, LAB2: 16, LAB3: 12, LAB4: 15, LAB5: 18, LAB6: 10,
+    TI: 16, ES: ''
+  })
+
+  const generarFormulaDesdeConfig = (cfg) => {
+    const terminos = []
+    let sumaPesos = 0
+    if (cfg.usaEP) {
+      terminos.push(Number(cfg.pesoEP) === 1 ? 'EP' : `${cfg.pesoEP}*EP`)
+      sumaPesos += Number(cfg.pesoEP) || 0
+    }
+    if (cfg.usaEF) {
+      terminos.push(Number(cfg.pesoEF) === 1 ? 'EF' : `${cfg.pesoEF}*EF`)
+      sumaPesos += Number(cfg.pesoEF) || 0
+    }
+    if (cfg.usaPP) {
+      terminos.push(Number(cfg.pesoPP) === 1 ? 'PP' : `${cfg.pesoPP}*PP`)
+      sumaPesos += Number(cfg.pesoPP) || 0
+    }
+    if (cfg.usaPL) {
+      terminos.push(Number(cfg.pesoPL) === 1 ? 'PL' : `${cfg.pesoPL}*PL`)
+      sumaPesos += Number(cfg.pesoPL) || 0
+    }
+    if (cfg.usaTI) {
+      terminos.push(Number(cfg.pesoTI) === 1 ? 'TI' : `${cfg.pesoTI}*TI`)
+      sumaPesos += Number(cfg.pesoTI) || 0
+    }
+
+    if (terminos.length === 0) return 'PF'
+    if (terminos.length === 1 && terminos[0] === 'PP') return 'PP'
+    if (terminos.length === 1 && terminos[0] === 'PF') return 'PF'
+
+    const divisor = cfg.divisorManual && Number(cfg.divisorPersonalizado) > 0 
+      ? Number(cfg.divisorPersonalizado) 
+      : (sumaPesos || 1)
+      
+    if (divisor === 1 && terminos.length === 1) return terminos[0]
+    return `(${terminos.join(' + ')}) / ${divisor}`
+  }
+
+  const parsearFormulaAConfig = (formulaStr) => {
+    const f = (formulaStr || '').toUpperCase()
+    const cfg = {
+      usaEP: f.includes('EP'),
+      pesoEP: 1,
+      usaEF: f.includes('EF'),
+      pesoEF: 1,
+      usaPP: f.includes('PP') || f.includes('SUM_PC') || f.includes('PC'),
+      pesoPP: 1,
+      pcCount: 4,
+      pcDrop: 1,
+      usaPL: f.includes('PL') || f.includes('LAB'),
+      pesoPL: 1,
+      labCount: 6,
+      labDrop: 1,
+      usaTI: f.includes('TI') || f.includes('MON'),
+      pesoTI: 1,
+      permiteES: f.includes('EP') && f.includes('EF'),
+      divisorManual: false,
+      divisorPersonalizado: 4
+    }
+
+    const matchEP = f.match(/(\d+)\s*\*\s*EP/)
+    if (matchEP) cfg.pesoEP = parseInt(matchEP[1])
+
+    const matchEF = f.match(/(\d+)\s*\*\s*EF/)
+    if (matchEF) cfg.pesoEF = parseInt(matchEF[1])
+
+    const matchPP = f.match(/(\d+)\s*\*\s*PP/)
+    if (matchPP) cfg.pesoPP = parseInt(matchPP[1])
+
+    const matchPL = f.match(/(\d+)\s*\*\s*(?:PL|LAB)/)
+    if (matchPL) cfg.pesoPL = parseInt(matchPL[1])
+
+    const matchTI = f.match(/(\d+)\s*\*\s*(?:TI|MON)/)
+    if (matchTI) cfg.pesoTI = parseInt(matchTI[1])
+
+    const matchDiv = f.match(/\/\s*(\d+(?:\.\d+)?)/)
+    if (matchDiv) {
+      const div = parseFloat(matchDiv[1])
+      const sumPesos = (cfg.usaEP ? cfg.pesoEP : 0) + (cfg.usaEF ? cfg.pesoEF : 0) + (cfg.usaPP ? cfg.pesoPP : 0) + (cfg.usaPL ? cfg.pesoPL : 0) + (cfg.usaTI ? cfg.pesoTI : 0)
+      if (div !== sumPesos) {
+        cfg.divisorManual = true
+        cfg.divisorPersonalizado = div
+      } else {
+        cfg.divisorPersonalizado = div
+      }
+    }
+    return cfg
+  }
+
+  const calcularSimulacionSist = (cfg, sim) => {
+    let ep = parseFloat(sim.EP) || 0
+    let ef = parseFloat(sim.EF) || 0
+    const es = parseFloat(sim.ES)
+
+    let esInfo = null
+    if (cfg.permiteES && !isNaN(es) && es >= 0) {
+      if (ep <= ef) {
+        esInfo = `ES (${es}) reemplazó EP (${ep})`
+        ep = es
+      } else {
+        esInfo = `ES (${es}) reemplazó EF (${ef})`
+        ef = es
+      }
+    }
+
+    let pp = 0
+    let pcsInfo = null
+    if (cfg.usaPP) {
+      const pcTotal = cfg.pcCount || 4
+      const pcDrop = cfg.pcDrop !== undefined ? cfg.pcDrop : 1
+      const pcsList = []
+      for (let i = 1; i <= pcTotal; i++) {
+        const val = sim[`PC${i}`] !== undefined && sim[`PC${i}`] !== '' ? parseFloat(sim[`PC${i}`]) : 0
+        pcsList.push({ id: `PC${i}`, val: isNaN(val) ? 0 : val })
+      }
+      const sorted = [...pcsList].sort((a,b) => b.val - a.val)
+      const countToKeep = Math.max(1, pcTotal - pcDrop)
+      const kept = sorted.slice(0, countToKeep)
+      const dropped = sorted.slice(countToKeep)
+      const sumKept = kept.reduce((acc, p) => acc + p.val, 0)
+      pp = sumKept / countToKeep
+      pcsInfo = {
+        kept: kept.map(k => `${k.id}: ${k.val}`),
+        dropped: dropped.map(d => `${d.id}: ${d.val}`),
+        pp: parseFloat(pp.toFixed(2))
+      }
+    }
+
+    let pl = 0
+    if (cfg.usaPL) {
+      const labTotal = cfg.labCount || 6
+      const labDrop = cfg.labDrop !== undefined ? cfg.labDrop : 1
+      const labsList = []
+      for (let i = 1; i <= labTotal; i++) {
+        const val = sim[`LAB${i}`] !== undefined && sim[`LAB${i}`] !== '' ? parseFloat(sim[`LAB${i}`]) : 0
+        labsList.push({ id: `LAB${i}`, val: isNaN(val) ? 0 : val })
+      }
+      const sorted = [...labsList].sort((a,b) => b.val - a.val)
+      const countToKeep = Math.max(1, labTotal - labDrop)
+      const kept = sorted.slice(0, countToKeep)
+      pl = kept.reduce((acc, l) => acc + l.val, 0) / countToKeep
+    }
+
+    const ti = parseFloat(sim.TI) || 0
+
+    let sumaPonderada = 0
+    let sumaPesos = 0
+    if (cfg.usaEP) { sumaPonderada += (Number(cfg.pesoEP) || 1) * ep; sumaPesos += Number(cfg.pesoEP) || 1 }
+    if (cfg.usaEF) { sumaPonderada += (Number(cfg.pesoEF) || 1) * ef; sumaPesos += Number(cfg.pesoEF) || 1 }
+    if (cfg.usaPP) { sumaPonderada += (Number(cfg.pesoPP) || 1) * pp; sumaPesos += Number(cfg.pesoPP) || 1 }
+    if (cfg.usaPL) { sumaPonderada += (Number(cfg.pesoPL) || 1) * pl; sumaPesos += Number(cfg.pesoPL) || 1 }
+    if (cfg.usaTI) { sumaPonderada += (Number(cfg.pesoTI) || 1) * ti; sumaPesos += Number(cfg.pesoTI) || 1 }
+
+    const divisor = cfg.divisorManual && Number(cfg.divisorPersonalizado) > 0 ? Number(cfg.divisorPersonalizado) : (sumaPesos || 1)
+    const finalGrade = Math.floor(((sumaPonderada / divisor) + 0.00001) * 10) / 10
+
+    return {
+      finalGrade: isNaN(finalGrade) ? 0 : finalGrade,
+      pp: parseFloat(pp.toFixed(2)),
+      pl: parseFloat(pl.toFixed(2)),
+      pcsInfo,
+      esInfo,
+      sumaPonderada: parseFloat(sumaPonderada.toFixed(2)),
+      divisor
+    }
+  }
+
+  const actualizarConfigVisual = (nuevosValores) => {
+    const updated = { ...configVisualSist, ...nuevosValores }
+    setConfigVisualSist(updated)
+    const nuevaFormula = generarFormulaDesdeConfig(updated)
+    setSistMaestro(prev => ({
+      ...prev,
+      formula: nuevaFormula,
+      usa_practicas: updated.usaPP
+    }))
+  }
+
   const [mostrarMapaAdmin, setMostrarMapaAdmin] = useState(false)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
@@ -184,13 +378,14 @@ export default function Dashboard() {
         nombre: cursoMaestro.nombre, creditos: cursoMaestro.creditos, ciclo_sugerido: cursoMaestro.ciclo_sugerido, sistema_evaluacion: cursoMaestro.sistema_evaluacion, pre_requisitos: cursoMaestro.pre_requisitos, carrera_id: cursoMaestro.carrera_id
       }).eq('id', cursoMaestro.id)
 
-      // Cascada manual a las matrículas de los alumnos usando el nombre antiguo
+      // Cascada automática integral a todas las matrículas de alumnos existentes
       if (oldCourse) {
         await supabase.from('cursos').update({
           nombre: cursoMaestro.nombre,
           creditos: cursoMaestro.creditos,
+          ciclo: cursoMaestro.ciclo_sugerido,
           sistema_evaluacion: cursoMaestro.sistema_evaluacion
-        }).eq('nombre', oldCourse.nombre)
+        }).ilike('nombre', oldCourse.nombre)
       }
     } else {
       await supabase.from('catalogo_cursos').insert([cursoMaestro])
@@ -209,9 +404,32 @@ export default function Dashboard() {
   // ---- LÓGICA SISTEMAS EVALUACIÓN ----
   const abrirModalSist = (sys = null) => {
     if (sys) {
+      const parsedConfig = parsearFormulaAConfig(sys.formula)
+      setConfigVisualSist(parsedConfig)
+      setModoVisualSist(true)
       setSistMaestro({ ...sys, isEdit: true })
     } else {
-      setSistMaestro({ id: '', nombre: '', formula: '', facultad: facultadSeleccionada, isEdit: false })
+      const defaultCfg = {
+        usaEP: true, pesoEP: 1,
+        usaEF: true, pesoEF: 2,
+        usaPP: true, pesoPP: 1, pcCount: 4, pcDrop: 1,
+        usaPL: false, pesoPL: 1, labCount: 6, labDrop: 1,
+        usaTI: false, pesoTI: 1,
+        permiteES: true,
+        divisorManual: false,
+        divisorPersonalizado: 4
+      }
+      setConfigVisualSist(defaultCfg)
+      setModoVisualSist(true)
+      const formulaIni = generarFormulaDesdeConfig(defaultCfg)
+      setSistMaestro({
+        id: '',
+        nombre: '',
+        formula: formulaIni,
+        facultad: facultadSeleccionada,
+        usa_practicas: true,
+        isEdit: false
+      })
     }
     setMostrarModalSist(true)
   }
@@ -219,8 +437,11 @@ export default function Dashboard() {
   const guardarSistema = async (e) => {
     e.preventDefault()
     const payload = { 
-      id: sistMaestro.id, nombre: sistMaestro.nombre, 
-      formula: sistMaestro.formula, usa_practicas: sistMaestro.usa_practicas 
+      id: sistMaestro.id,
+      nombre: sistMaestro.nombre, 
+      formula: sistMaestro.formula,
+      usa_practicas: sistMaestro.usa_practicas ?? configVisualSist.usaPP ?? false,
+      facultad: sistMaestro.facultad || facultadSeleccionada
     }
     
     let result = null
@@ -730,37 +951,461 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* MODAL SISTEMAS */}
-      {mostrarModalSist && sistMaestro && (
-        <div className="fixed inset-0 bg-[#080c14]/95 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-[#0d1220] border border-cyan-500/20 rounded-2xl p-8 w-full max-w-md shadow-2xl">
-            <h3 className="text-2xl font-black text-white mb-6 text-cyan-400">{sistMaestro.isEdit ? 'Editar Sistema' : 'Nuevo Sistema'}</h3>
-            <form onSubmit={guardarSistema} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="col-span-1">
-                  <label className="block text-[9px] text-slate-500 font-bold uppercase mb-2">Código (ID)</label>
-                  <input required disabled={sistMaestro.isEdit} className="w-full px-4 py-3 bg-white/[0.03] border border-white/[0.08] rounded-xl text-white outline-none disabled:opacity-50" placeholder="Ej. J" value={sistMaestro.id} onChange={e => setSistMaestro({...sistMaestro, id: e.target.value})} />
+      {/* MODAL SISTEMAS (CONSTRUCTOR VISUAL INTERACTIVO) */}
+      {mostrarModalSist && sistMaestro && (() => {
+        const simRes = calcularSimulacionSist(configVisualSist, simuladorSist)
+        return (
+          <div className="fixed inset-0 bg-[#080c14]/95 backdrop-blur-md flex items-center justify-center z-50 p-3 sm:p-6 overflow-y-auto">
+            <div className="bg-[#0d1220] border border-cyan-500/30 rounded-3xl p-6 sm:p-8 w-full max-w-5xl shadow-[0_0_80px_rgba(6,182,212,0.15)] my-auto max-h-[92vh] overflow-y-auto custom-scrollbar flex flex-col">
+              
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-5 border-b border-white/[0.08] gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-cyan-400">
+                      {sistMaestro.isEdit ? 'Editar Sistema de Evaluación' : 'Nuevo Sistema de Evaluación'}
+                    </span>
+                    <span className="text-[9px] font-bold text-slate-500 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">
+                      Facultad: {sistMaestro.facultad || facultadSeleccionada}
+                    </span>
+                  </div>
+                  <h3 className="text-xl sm:text-2xl font-black text-white">
+                    {sistMaestro.nombre || 'Configurar Sistema'}
+                  </h3>
                 </div>
-                <div className="col-span-1 sm:col-span-2">
-                  <label className="block text-[9px] text-slate-500 font-bold uppercase mb-2">Nombre</label>
-                  <input required className="w-full px-4 py-3 bg-white/[0.03] border border-white/[0.08] rounded-xl text-white outline-none" placeholder="Ej. Sistema J" value={sistMaestro.nombre} onChange={e => setSistMaestro({...sistMaestro, nombre: e.target.value})} />
+
+                {/* Selector de Modo (Visual vs Manual) */}
+                <div className="flex bg-[#080c14] p-1 rounded-xl border border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setModoVisualSist(true)}
+                    className={`px-3.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                      modoVisualSist 
+                        ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/20' 
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span>⚡</span> Constructor Visual
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModoVisualSist(false)}
+                    className={`px-3.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                      !modoVisualSist 
+                        ? 'bg-white/10 text-white' 
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span>🛠️</span> Fórmula Manual
+                  </button>
                 </div>
               </div>
-              <div>
-                <label className="block text-[9px] text-slate-500 font-bold uppercase mb-2">Fórmula Matemática</label>
-                <input required className="w-full px-4 py-3 bg-white/[0.03] border border-white/[0.08] font-mono text-amber-400 rounded-xl outline-none focus:border-cyan-500/50" placeholder="(EP + 2*EF + PP_PC) / 4" value={sistMaestro.formula} onChange={e => setSistMaestro({...sistMaestro, formula: e.target.value})} />
-                <p className="text-[9px] text-slate-500 mt-2">
-                  Variables mágicas: <strong>SUM_PC3</strong> (suma 3 PCs), <strong>PP_PC</strong> (promedia 3 PCs), <strong>PP_LAB</strong> (promedia 6 Labs), <strong>PP_MIXTO</strong> (promedia 3 PCs y 6 Labs entre 9), <strong>MON1, MON2</strong> (Monografías), <strong>EP, EF, PF</strong>.
-                </p>
-              </div>
-              <div className="flex gap-3 pt-5">
-                <button type="button" onClick={() => setMostrarModalSist(false)} className="flex-1 py-3 rounded-xl border border-white/[0.06] text-slate-500 hover:text-white text-[10px] font-black uppercase">Cancelar</button>
-                <button type="submit" className="flex-[2] py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-black text-[10px] uppercase">Guardar Sistema</button>
-              </div>
-            </form>
+
+              {/* Formulario */}
+              <form onSubmit={guardarSistema} className="space-y-6 pt-5 flex-1 flex flex-col justify-between">
+                
+                {/* Datos Básicos (Código y Nombre) */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-[9px] text-slate-400 font-black uppercase tracking-widest mb-1.5">Código / ID</label>
+                    <input 
+                      required 
+                      disabled={sistMaestro.isEdit} 
+                      className="w-full px-4 py-2.5 bg-white/[0.03] border border-white/[0.08] rounded-xl text-white font-mono font-bold text-sm outline-none focus:border-cyan-500/50 disabled:opacity-40 uppercase" 
+                      placeholder="Ej. FC_G" 
+                      value={sistMaestro.id} 
+                      onChange={e => setSistMaestro({...sistMaestro, id: e.target.value.toUpperCase().replace(/\s+/g, '_')})} 
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[9px] text-slate-400 font-black uppercase tracking-widest mb-1.5">Nombre Descriptivo</label>
+                    <input 
+                      required 
+                      className="w-full px-4 py-2.5 bg-white/[0.03] border border-white/[0.08] rounded-xl text-white font-bold text-sm outline-none focus:border-cyan-500/50" 
+                      placeholder="Ej. Sistema G (Física) - Parcial, Final y Prácticas" 
+                      value={sistMaestro.nombre} 
+                      onChange={e => setSistMaestro({...sistMaestro, nombre: e.target.value})} 
+                    />
+                  </div>
+                </div>
+
+                {/* MODO VISUAL INTERACTIVO */}
+                {modoVisualSist ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    
+                    {/* Columna Izquierda: Componentes Configurables */}
+                    <div className="lg:col-span-7 space-y-3.5">
+                      <div className="flex items-center justify-between pb-1">
+                        <span className="text-[10px] font-black text-cyan-400 uppercase tracking-widest">Componentes de Evaluación</span>
+                        <span className="text-[9px] text-slate-500">Haz clic para activar o cambiar pesos</span>
+                      </div>
+
+                      {/* Examen Parcial */}
+                      <div className={`p-3.5 rounded-2xl border transition-all ${configVisualSist.usaEP ? 'bg-cyan-500/[0.04] border-cyan-500/40' : 'bg-white/[0.02] border-white/[0.05] opacity-60'}`}>
+                        <div className="flex items-center justify-between">
+                          <label className="flex items-center gap-3 cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              checked={configVisualSist.usaEP} 
+                              onChange={e => actualizarConfigVisual({ usaEP: e.target.checked })}
+                              className="w-4 h-4 rounded text-cyan-500 focus:ring-0 bg-transparent border-white/20 cursor-pointer"
+                            />
+                            <div>
+                              <span className="text-xs font-black text-white">Examen Parcial (EP)</span>
+                              <p className="text-[10px] text-slate-500">Evaluación teórica de mitad de ciclo</p>
+                            </div>
+                          </label>
+                          {configVisualSist.usaEP && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-bold text-slate-400 uppercase">Peso:</span>
+                              <div className="flex items-center bg-[#080c14] border border-white/10 rounded-lg">
+                                <button type="button" onClick={() => actualizarConfigVisual({ pesoEP: Math.max(1, configVisualSist.pesoEP - 1) })} className="px-2 py-1 text-slate-400 hover:text-white text-xs font-bold">-</button>
+                                <span className="px-2 text-xs font-black text-cyan-400">{configVisualSist.pesoEP}</span>
+                                <button type="button" onClick={() => actualizarConfigVisual({ pesoEP: configVisualSist.pesoEP + 1 })} className="px-2 py-1 text-slate-400 hover:text-white text-xs font-bold">+</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Examen Final */}
+                      <div className={`p-3.5 rounded-2xl border transition-all ${configVisualSist.usaEF ? 'bg-cyan-500/[0.04] border-cyan-500/40' : 'bg-white/[0.02] border-white/[0.05] opacity-60'}`}>
+                        <div className="flex items-center justify-between">
+                          <label className="flex items-center gap-3 cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              checked={configVisualSist.usaEF} 
+                              onChange={e => actualizarConfigVisual({ usaEF: e.target.checked })}
+                              className="w-4 h-4 rounded text-cyan-500 focus:ring-0 bg-transparent border-white/20 cursor-pointer"
+                            />
+                            <div>
+                              <span className="text-xs font-black text-white">Examen Final (EF)</span>
+                              <p className="text-[10px] text-slate-500">Evaluación teórica de fin de ciclo</p>
+                            </div>
+                          </label>
+                          {configVisualSist.usaEF && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-bold text-slate-400 uppercase">Peso:</span>
+                              <div className="flex items-center bg-[#080c14] border border-white/10 rounded-lg">
+                                <button type="button" onClick={() => actualizarConfigVisual({ pesoEF: Math.max(1, configVisualSist.pesoEF - 1) })} className="px-2 py-1 text-slate-400 hover:text-white text-xs font-bold">-</button>
+                                <span className="px-2 text-xs font-black text-cyan-400">{configVisualSist.pesoEF}</span>
+                                <button type="button" onClick={() => actualizarConfigVisual({ pesoEF: configVisualSist.pesoEF + 1 })} className="px-2 py-1 text-slate-400 hover:text-white text-xs font-bold">+</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Prácticas Calificadas */}
+                      <div className={`p-3.5 rounded-2xl border transition-all ${configVisualSist.usaPP ? 'bg-amber-500/[0.04] border-amber-500/40' : 'bg-white/[0.02] border-white/[0.05] opacity-60'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="flex items-center gap-3 cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              checked={configVisualSist.usaPP} 
+                              onChange={e => actualizarConfigVisual({ usaPP: e.target.checked })}
+                              className="w-4 h-4 rounded text-amber-500 focus:ring-0 bg-transparent border-white/20 cursor-pointer"
+                            />
+                            <div>
+                              <span className="text-xs font-black text-white">Prácticas Calificadas (PP)</span>
+                              <p className="text-[10px] text-slate-500">Evaluaciones continuas durante el ciclo</p>
+                            </div>
+                          </label>
+                          {configVisualSist.usaPP && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-bold text-slate-400 uppercase">Peso PP:</span>
+                              <div className="flex items-center bg-[#080c14] border border-white/10 rounded-lg">
+                                <button type="button" onClick={() => actualizarConfigVisual({ pesoPP: Math.max(1, configVisualSist.pesoPP - 1) })} className="px-2 py-1 text-slate-400 hover:text-white text-xs font-bold">-</button>
+                                <span className="px-2 text-xs font-black text-amber-400">{configVisualSist.pesoPP}</span>
+                                <button type="button" onClick={() => actualizarConfigVisual({ pesoPP: configVisualSist.pesoPP + 1 })} className="px-2 py-1 text-slate-400 hover:text-white text-xs font-bold">+</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {configVisualSist.usaPP && (
+                          <div className="pt-2 border-t border-white/[0.06] grid grid-cols-2 gap-3">
+                            <div>
+                              <span className="block text-[9px] text-slate-400 font-bold uppercase mb-1">Total de PCs</span>
+                              <div className="flex gap-1.5">
+                                {[3, 4, 5, 6].map(num => (
+                                  <button
+                                    type="button"
+                                    key={num}
+                                    onClick={() => actualizarConfigVisual({ pcCount: num })}
+                                    className={`flex-1 py-1 text-xs font-bold rounded-lg border ${
+                                      configVisualSist.pcCount === num 
+                                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-400' 
+                                        : 'bg-[#080c14] border-white/5 text-slate-400 hover:text-white'
+                                    }`}
+                                  >
+                                    {num} PCs
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="block text-[9px] text-slate-400 font-bold uppercase mb-1">Regla de Eliminación</span>
+                              <select 
+                                value={configVisualSist.pcDrop}
+                                onChange={e => actualizarConfigVisual({ pcDrop: parseInt(e.target.value) })}
+                                className="w-full bg-[#080c14] border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white outline-none"
+                              >
+                                <option value={1}>Eliminar 1 menor (cuenta {Math.max(1, (configVisualSist.pcCount || 4) - 1)})</option>
+                                <option value={2}>Eliminar 2 menores (cuenta {Math.max(1, (configVisualSist.pcCount || 4) - 2)})</option>
+                                <option value={0}>Promediar todas (sin eliminar)</option>
+                              </select>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Laboratorios */}
+                      <div className={`p-3.5 rounded-2xl border transition-all ${configVisualSist.usaPL ? 'bg-purple-500/[0.04] border-purple-500/40' : 'bg-white/[0.02] border-white/[0.05] opacity-60'}`}>
+                        <div className="flex items-center justify-between">
+                          <label className="flex items-center gap-3 cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              checked={configVisualSist.usaPL} 
+                              onChange={e => actualizarConfigVisual({ usaPL: e.target.checked })}
+                              className="w-4 h-4 rounded text-purple-500 focus:ring-0 bg-transparent border-white/20 cursor-pointer"
+                            />
+                            <div>
+                              <span className="text-xs font-black text-white">Laboratorios (PL)</span>
+                              <p className="text-[10px] text-slate-500">Informes de experimentos prácticos</p>
+                            </div>
+                          </label>
+                          {configVisualSist.usaPL && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-bold text-slate-400 uppercase">Peso PL:</span>
+                              <div className="flex items-center bg-[#080c14] border border-white/10 rounded-lg">
+                                <button type="button" onClick={() => actualizarConfigVisual({ pesoPL: Math.max(1, configVisualSist.pesoPL - 1) })} className="px-2 py-1 text-slate-400 hover:text-white text-xs font-bold">-</button>
+                                <span className="px-2 text-xs font-black text-purple-400">{configVisualSist.pesoPL}</span>
+                                <button type="button" onClick={() => actualizarConfigVisual({ pesoPL: configVisualSist.pesoPL + 1 })} className="px-2 py-1 text-slate-400 hover:text-white text-xs font-bold">+</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Trabajos / Monografías */}
+                      <div className={`p-3.5 rounded-2xl border transition-all ${configVisualSist.usaTI ? 'bg-emerald-500/[0.04] border-emerald-500/40' : 'bg-white/[0.02] border-white/[0.05] opacity-60'}`}>
+                        <div className="flex items-center justify-between">
+                          <label className="flex items-center gap-3 cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              checked={configVisualSist.usaTI} 
+                              onChange={e => actualizarConfigVisual({ usaTI: e.target.checked })}
+                              className="w-4 h-4 rounded text-emerald-500 focus:ring-0 bg-transparent border-white/20 cursor-pointer"
+                            />
+                            <div>
+                              <span className="text-xs font-black text-white">Trabajo de Investigación / Proyecto (TI)</span>
+                              <p className="text-[10px] text-slate-500">Monografía, proyecto o entregable final</p>
+                            </div>
+                          </label>
+                          {configVisualSist.usaTI && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-bold text-slate-400 uppercase">Peso TI:</span>
+                              <div className="flex items-center bg-[#080c14] border border-white/10 rounded-lg">
+                                <button type="button" onClick={() => actualizarConfigVisual({ pesoTI: Math.max(1, configVisualSist.pesoTI - 1) })} className="px-2 py-1 text-slate-400 hover:text-white text-xs font-bold">-</button>
+                                <span className="px-2 text-xs font-black text-emerald-400">{configVisualSist.pesoTI}</span>
+                                <button type="button" onClick={() => actualizarConfigVisual({ pesoTI: configVisualSist.pesoTI + 1 })} className="px-2 py-1 text-slate-400 hover:text-white text-xs font-bold">+</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Reglas Adicionales (Sustitutorio y Divisor) */}
+                      <div className="p-3.5 rounded-2xl bg-[#080c14] border border-white/[0.08] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <label className="flex items-center gap-2.5 cursor-pointer">
+                          <input 
+                            type="checkbox"
+                            checked={configVisualSist.permiteES}
+                            onChange={e => actualizarConfigVisual({ permiteES: e.target.checked })}
+                            className="w-4 h-4 rounded text-cyan-500 focus:ring-0 bg-transparent border-white/20 cursor-pointer"
+                          />
+                          <div>
+                            <span className="text-xs font-bold text-slate-200">Permite Examen Sustitutorio (ES)</span>
+                            <p className="text-[9px] text-slate-500">Reemplaza automáticamente la menor nota entre Parcial y Final</p>
+                          </div>
+                        </label>
+                      </div>
+
+                    </div>
+
+                    {/* Columna Derecha: Vista Previa y Simulador en Tiempo Real */}
+                    <div className="lg:col-span-5 space-y-4">
+                      
+                      {/* Tarjeta de Fórmula en Tiempo Real */}
+                      <div className="p-4 rounded-2xl bg-[#080c14] border border-cyan-500/30 shadow-lg">
+                        <span className="text-[9px] font-black text-cyan-400 uppercase tracking-widest block mb-2">Fórmula Resultante</span>
+                        <div className="px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.08] font-mono text-cyan-300 font-bold text-sm tracking-wide text-center">
+                          PF = {sistMaestro.formula || 'PF'}
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-2 text-center">
+                          {configVisualSist.usaPP ? `Prácticas: se rinden ${configVisualSist.pcCount || 4} PCs y se ${configVisualSist.pcDrop > 0 ? `elimina(n) las ${configVisualSist.pcDrop} menor(es)` : 'promedian todas'}.` : 'Sin prácticas continuas.'}
+                        </p>
+                      </div>
+
+                      {/* Simulador Interactivo */}
+                      <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.08] space-y-3">
+                        <div className="flex items-center justify-between pb-1 border-b border-white/[0.05]">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs">🧪</span>
+                            <span className="text-[10px] font-black text-white uppercase tracking-wider">Simulador de Prueba</span>
+                          </div>
+                          <span className="text-[9px] font-bold text-slate-500">Cambia notas para probar</span>
+                        </div>
+
+                        {/* Inputs de Muestra */}
+                        <div className="space-y-2.5">
+                          {configVisualSist.usaEP && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-slate-400 font-bold">Examen Parcial:</span>
+                              <input 
+                                type="number" min="0" max="20" step="0.5"
+                                value={simuladorSist.EP}
+                                onChange={e => setSimuladorSist({...simuladorSist, EP: e.target.value})}
+                                className="w-16 px-2 py-1 bg-[#080c14] border border-white/10 rounded text-center text-cyan-400 font-bold font-mono outline-none"
+                              />
+                            </div>
+                          )}
+
+                          {configVisualSist.usaEF && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-slate-400 font-bold">Examen Final:</span>
+                              <input 
+                                type="number" min="0" max="20" step="0.5"
+                                value={simuladorSist.EF}
+                                onChange={e => setSimuladorSist({...simuladorSist, EF: e.target.value})}
+                                className="w-16 px-2 py-1 bg-[#080c14] border border-white/10 rounded text-center text-cyan-400 font-bold font-mono outline-none"
+                              />
+                            </div>
+                          )}
+
+                          {configVisualSist.usaPP && (
+                            <div className="space-y-1.5 pt-1 border-t border-white/[0.05]">
+                              <span className="text-[9px] text-slate-400 font-black uppercase tracking-wider block">Notas de PCs:</span>
+                              <div className="grid grid-cols-4 gap-1.5">
+                                {[...Array(configVisualSist.pcCount || 4)].map((_, i) => (
+                                  <input 
+                                    key={i}
+                                    type="number" min="0" max="20" step="0.5"
+                                    placeholder={`PC${i+1}`}
+                                    value={simuladorSist[`PC${i+1}`] ?? ''}
+                                    onChange={e => setSimuladorSist({...simuladorSist, [`PC${i+1}`]: e.target.value})}
+                                    className="w-full px-1.5 py-1 bg-[#080c14] border border-white/10 rounded text-center text-amber-400 font-bold font-mono text-xs outline-none"
+                                  />
+                                ))}
+                              </div>
+                              {simRes.pcsInfo && (
+                                <div className="text-[9px] text-slate-400 flex flex-wrap justify-between items-center bg-[#080c14] p-2 rounded-lg border border-white/5">
+                                  <span>PP = <strong className="text-amber-400">{simRes.pp}</strong></span>
+                                  {simRes.pcsInfo.dropped.length > 0 && (
+                                    <span className="text-red-400 line-through">Descarta: {simRes.pcsInfo.dropped.join(', ')}</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {configVisualSist.permiteES && (
+                            <div className="flex items-center justify-between text-xs pt-1 border-t border-white/[0.05]">
+                              <span className="text-slate-400 font-bold">Sustitutorio (ES opcional):</span>
+                              <input 
+                                type="number" min="0" max="20" step="0.5"
+                                placeholder="--"
+                                value={simuladorSist.ES}
+                                onChange={e => setSimuladorSist({...simuladorSist, ES: e.target.value})}
+                                className="w-16 px-2 py-1 bg-[#080c14] border border-white/10 rounded text-center text-slate-300 font-bold font-mono outline-none"
+                              />
+                            </div>
+                          )}
+                          {simRes.esInfo && (
+                            <p className="text-[9px] text-emerald-400 italic text-right">{simRes.esInfo}</p>
+                          )}
+                        </div>
+
+                        {/* Resultado Final del Simulador */}
+                        <div className="pt-3 border-t border-white/[0.08] flex items-center justify-between">
+                          <div>
+                            <span className="text-[9px] text-slate-500 uppercase tracking-widest block font-bold">Promedio Final Calculado</span>
+                            <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full inline-block mt-0.5 ${
+                              simRes.finalGrade >= 10.5 
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            }`}>
+                              {simRes.finalGrade >= 10.5 ? 'Aprobado' : 'Desaprobado'}
+                            </span>
+                          </div>
+                          <div className={`text-3xl font-black font-mono ${
+                            simRes.finalGrade >= 10.5 ? 'text-emerald-400' : 'text-red-400'
+                          }`}>
+                            {simRes.finalGrade.toFixed(1)}
+                          </div>
+                        </div>
+
+                      </div>
+
+                    </div>
+
+                  </div>
+                ) : (
+                  /* MODO MANUAL (Para expertos) */
+                  <div className="space-y-4 p-5 rounded-2xl bg-[#080c14] border border-white/[0.08]">
+                    <div>
+                      <label className="block text-[9px] text-slate-400 font-bold uppercase mb-2">Fórmula Matemática Directa</label>
+                      <input 
+                        required 
+                        className="w-full px-4 py-3 bg-white/[0.03] border border-white/[0.08] font-mono text-amber-400 font-bold text-sm rounded-xl outline-none focus:border-cyan-500/50" 
+                        placeholder="(EP + 2*EF + PP) / 4" 
+                        value={sistMaestro.formula} 
+                        onChange={e => setSistMaestro({...sistMaestro, formula: e.target.value})} 
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block mb-2">Variables rápidas para insertar:</span>
+                      <div className="flex flex-wrap gap-2">
+                        {['EP', 'EF', 'PP', 'PL', 'TI', 'ES', 'PF', 'SUM_PC3', 'SUM_PC5', 'PP_LAB'].map(v => (
+                          <button
+                            key={v}
+                            type="button"
+                            onClick={() => setSistMaestro({ ...sistMaestro, formula: sistMaestro.formula ? `${sistMaestro.formula} + ${v}` : v })}
+                            className="px-2.5 py-1 bg-white/5 hover:bg-cyan-500/20 hover:text-cyan-400 border border-white/10 rounded-lg text-xs font-mono font-bold text-slate-300 transition-colors"
+                          >
+                            +{v}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Botones de Acción */}
+                <div className="flex gap-3 pt-6 border-t border-white/[0.08]">
+                  <button 
+                    type="button" 
+                    onClick={() => setMostrarModalSist(false)} 
+                    className="flex-1 py-3 rounded-xl border border-white/[0.08] text-slate-400 hover:text-white hover:bg-white/5 text-[10px] font-black uppercase tracking-widest transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit" 
+                    className="flex-[2] py-3 rounded-xl bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white font-black text-[10px] uppercase tracking-widest shadow-lg shadow-cyan-500/20 transition-all"
+                  >
+                    Guardar Sistema
+                  </button>
+                </div>
+
+              </form>
+
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* MODAL MAPA CURRICULAR ADMIN (MODO DIOS) */}
       {mostrarMapaAdmin && (
