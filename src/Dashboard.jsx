@@ -52,6 +52,62 @@ export default function Dashboard() {
   const [mostrarModalSist, setMostrarModalSist] = useState(false)
   const [sistMaestro, setSistMaestro] = useState(null)
 
+  // Funciones utilitarias para fórmulas y configuración
+  const extraerConfigDeFormula = (formulaStr) => {
+    if (!formulaStr) return null
+    const match = (formulaStr || '').match(/\/\*cfg:(.*?)\*\//)
+    if (match) {
+      try { return JSON.parse(match[1]) } catch (e) { return null }
+    }
+    return null
+  }
+
+  const limpiarFormula = (f) => {
+    if (!f) return 'PF'
+    return f.replace(/\/\*cfg:.*?\*\/\s*/g, '').trim()
+  }
+
+  const describirEnEspanol = (sys) => {
+    if (!sys) return ''
+    const raw = sys.formula || ''
+    const f = limpiarFormula(raw).toUpperCase()
+    const meta = extraerConfigDeFormula(raw)
+    const partes = []
+
+    const matchEP = f.match(/(\d+)\s*\*\s*EP/)
+    const pesoEP = matchEP ? matchEP[1] : (f.includes('EP') ? '1' : null)
+    if (pesoEP) partes.push(`Examen Parcial (peso ${pesoEP})`)
+
+    const matchEF = f.match(/(\d+)\s*\*\s*EF/)
+    const pesoEF = matchEF ? matchEF[1] : (f.includes('EF') ? '1' : null)
+    if (pesoEF) partes.push(`Examen Final (peso ${pesoEF})`)
+
+    const matchPP = f.match(/(\d+)\s*\*\s*PP/)
+    const pesoPP = matchPP ? matchPP[1] : (f.includes('PP') || f.includes('PC') ? '1' : null)
+    if (pesoPP || sys.usa_practicas) {
+      const pcTotal = meta?.pcCount || 4
+      const pcDrop = meta?.pcDrop !== undefined ? meta.pcDrop : 1
+      const pcKept = Math.max(1, pcTotal - pcDrop)
+      partes.push(`Prácticas: rinde ${pcTotal} PCs, elimina ${pcDrop} menor${pcDrop === 1 ? '' : 'es'} y promedia ${pcKept} mejores (peso ${pesoPP || 1})`)
+    }
+
+    const matchPL = f.match(/(\d+)\s*\*\s*(?:PL|LAB)/)
+    const pesoPL = matchPL ? matchPL[1] : (f.includes('PL') || f.includes('LAB') ? '1' : null)
+    if (pesoPL) {
+      const labTotal = meta?.labCount || 6
+      const labDrop = meta?.labDrop !== undefined ? meta.labDrop : 1
+      const labKept = Math.max(1, labTotal - labDrop)
+      partes.push(`Laboratorios: rinde ${labTotal} Labs, elimina ${labDrop} menor${labDrop === 1 ? '' : 'es'} y promedia ${labKept} mejores (peso ${pesoPL})`)
+    }
+
+    if (f.includes('TI')) partes.push('Trabajo / Proyecto (TI)')
+    if (f.includes('MON')) partes.push('Monografía')
+    if (f.includes('EP') && f.includes('EF')) partes.push('Permite Sustitutorio (ES)')
+    if (f === 'PF') partes.push('Promedio Final Único / Directo')
+
+    return partes.length > 0 ? partes.join(' • ') : f
+  }
+
   // Constructor interactivo de sistemas de evaluación
   const [modoVisualSist, setModoVisualSist] = useState(true)
   const [configVisualSist, setConfigVisualSist] = useState({
@@ -94,20 +150,30 @@ export default function Dashboard() {
       sumaPesos += Number(cfg.pesoTI) || 0
     }
 
-    if (terminos.length === 0) return 'PF'
-    if (terminos.length === 1 && terminos[0] === 'PP') return 'PP'
-    if (terminos.length === 1 && terminos[0] === 'PF') return 'PF'
+    let formulaBase = 'PF'
+    if (terminos.length === 1 && terminos[0] === 'PP') formulaBase = 'PP'
+    else if (terminos.length === 1 && terminos[0] === 'PF') formulaBase = 'PF'
+    else if (terminos.length > 0) {
+      const divisor = cfg.divisorManual && Number(cfg.divisorPersonalizado) > 0 
+        ? Number(cfg.divisorPersonalizado) 
+        : (sumaPesos || 1)
+      formulaBase = divisor === 1 && terminos.length === 1 ? terminos[0] : `(${terminos.join(' + ')}) / ${divisor}`
+    }
 
-    const divisor = cfg.divisorManual && Number(cfg.divisorPersonalizado) > 0 
-      ? Number(cfg.divisorPersonalizado) 
-      : (sumaPesos || 1)
-      
-    if (divisor === 1 && terminos.length === 1) return terminos[0]
-    return `(${terminos.join(' + ')}) / ${divisor}`
+    // Embed metadata for custom PC and Lab counts and drops
+    const meta = {
+      pcCount: cfg.usaPP ? (cfg.pcCount || 4) : 0,
+      pcDrop: cfg.usaPP ? (cfg.pcDrop ?? 1) : 0,
+      labCount: cfg.usaPL ? (cfg.labCount || 6) : 0,
+      labDrop: cfg.usaPL ? (cfg.labDrop ?? 1) : 0
+    }
+    return `/*cfg:${JSON.stringify(meta)}*/ ${formulaBase}`
   }
 
   const parsearFormulaAConfig = (formulaStr) => {
-    const f = (formulaStr || '').toUpperCase()
+    const raw = formulaStr || ''
+    const meta = extraerConfigDeFormula(raw)
+    const f = limpiarFormula(raw).toUpperCase()
     const cfg = {
       usaEP: f.includes('EP'),
       pesoEP: 1,
@@ -115,12 +181,12 @@ export default function Dashboard() {
       pesoEF: 1,
       usaPP: f.includes('PP') || f.includes('SUM_PC') || f.includes('PC'),
       pesoPP: 1,
-      pcCount: 4,
-      pcDrop: 1,
+      pcCount: meta?.pcCount || 4,
+      pcDrop: meta?.pcDrop !== undefined ? meta.pcDrop : 1,
       usaPL: f.includes('PL') || f.includes('LAB'),
       pesoPL: 1,
-      labCount: 6,
-      labDrop: 1,
+      labCount: meta?.labCount || 6,
+      labDrop: meta?.labDrop !== undefined ? meta.labDrop : 1,
       usaTI: f.includes('TI') || f.includes('MON'),
       pesoTI: 1,
       permiteES: f.includes('EP') && f.includes('EF'),
@@ -719,7 +785,8 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <h4 className="text-lg font-black text-white mb-1 uppercase tracking-tight">{sys.nombre}</h4>
-                  <p className="text-xs font-mono text-amber-400 bg-black/30 p-2 rounded border border-white/5 mb-3">{sys.formula}</p>
+                  <p className="text-xs font-mono text-amber-400 bg-black/30 p-2 rounded border border-white/5 mb-1">PF = {limpiarFormula(sys.formula)}</p>
+                  <p className="text-[10px] text-slate-400 italic mb-3">{describirEnEspanol(sys)}</p>
                   <p className="text-[9px] text-slate-500 uppercase tracking-widest flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-cyan-500"></span>
                     Activo en {facultadSeleccionada}
@@ -928,17 +995,48 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="col-span-1 sm:col-span-2">
-                  <label className="block text-[9px] text-slate-500 font-bold uppercase mb-2">
-                    Sistema de Evaluación ({carreras.find(c => c.id === cursoMaestro.carrera_id)?.facultad || facultadSeleccionada})
-                  </label>
-                  <select className="w-full px-4 py-3 bg-[#0d1220] border border-white/[0.08] rounded-xl text-white outline-none cursor-pointer" value={cursoMaestro.sistema_evaluacion} onChange={e => setCursoMaestro({...cursoMaestro, sistema_evaluacion: e.target.value})}>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className="block text-[9px] text-slate-400 font-black uppercase tracking-wider">
+                      Sistema de Evaluación ({carreras.find(c => c.id === cursoMaestro.carrera_id)?.facultad || facultadSeleccionada})
+                    </label>
+                    <span className="text-[9px] text-cyan-400 font-bold">Fórmula y Desglose Visible</span>
+                  </div>
+                  <select 
+                    className="w-full px-4 py-3 bg-[#080c14] border border-white/[0.1] rounded-xl text-white font-medium text-xs outline-none focus:border-cyan-500/50 cursor-pointer" 
+                    value={cursoMaestro.sistema_evaluacion} 
+                    onChange={e => setCursoMaestro({...cursoMaestro, sistema_evaluacion: e.target.value})}
+                  >
                     {sistemas.filter(s => (s.facultad || 'FIIS') === (carreras.find(c => c.id === cursoMaestro.carrera_id)?.facultad || facultadSeleccionada)).map(sys => (
-                      <option key={sys.id} value={sys.id} style={{background:'#0d1220'}}>{sys.nombre} ({sys.id})</option>
+                      <option key={sys.id} value={sys.id} style={{background:'#0d1220'}}>
+                        {sys.nombre} ({sys.id}) ➔ {limpiarFormula(sys.formula)}
+                      </option>
                     ))}
                     {sistemas.filter(s => (s.facultad || 'FIIS') === (carreras.find(c => c.id === cursoMaestro.carrera_id)?.facultad || facultadSeleccionada)).length === 0 && (
                       <option value="" style={{background:'#0d1220'}}>Sin sistemas para esta facultad — crea uno primero</option>
                     )}
                   </select>
+
+                  {/* Tarjeta explicativa de la fórmula seleccionada */}
+                  {(() => {
+                    const sysSel = sistemas.find(s => s.id === cursoMaestro.sistema_evaluacion)
+                    if (!sysSel) return null
+                    return (
+                      <div className="mt-2.5 p-3.5 rounded-2xl bg-[#080c14] border border-cyan-500/30 text-xs shadow-lg space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[10px] font-black text-cyan-400 uppercase tracking-widest flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                            {sysSel.nombre}
+                          </span>
+                          <span className="font-mono text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20 text-xs">
+                            PF = {limpiarFormula(sysSel.formula)}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-300 leading-relaxed">
+                          💡 {describirEnEspanol(sysSel)}
+                        </p>
+                      </div>
+                    )
+                  })()}
                 </div>
                 <div className="col-span-1 sm:col-span-2">
                   <label className="block text-[9px] text-slate-500 font-bold uppercase mb-2">Carrera Perteneciente</label>
@@ -1131,45 +1229,85 @@ export default function Dashboard() {
                         </div>
 
                         {configVisualSist.usaPP && (
-                          <div className="pt-2 border-t border-white/[0.06] grid grid-cols-2 gap-3">
-                            <div>
-                              <span className="block text-[9px] text-slate-400 font-bold uppercase mb-1">Total de PCs</span>
-                              <div className="flex gap-1.5">
-                                {[3, 4, 5, 6].map(num => (
-                                  <button
-                                    type="button"
-                                    key={num}
-                                    onClick={() => actualizarConfigVisual({ pcCount: num })}
-                                    className={`flex-1 py-1 text-xs font-bold rounded-lg border ${
-                                      configVisualSist.pcCount === num 
-                                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-400' 
-                                        : 'bg-[#080c14] border-white/5 text-slate-400 hover:text-white'
-                                    }`}
-                                  >
-                                    {num} PCs
-                                  </button>
-                                ))}
+                          <div className="pt-2.5 border-t border-white/[0.06] space-y-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {/* Total de PCs con Stepper */}
+                              <div className="bg-[#080c14] p-2 rounded-xl border border-white/5">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-[9px] text-slate-400 font-bold uppercase">Total de PCs</span>
+                                  <span className="text-xs font-black text-amber-400">{configVisualSist.pcCount || 4} PCs</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <button 
+                                    type="button" 
+                                    onClick={() => {
+                                      const nuevoTotal = Math.max(1, (configVisualSist.pcCount || 4) - 1)
+                                      actualizarConfigVisual({ 
+                                        pcCount: nuevoTotal, 
+                                        pcDrop: Math.min(configVisualSist.pcDrop || 0, nuevoTotal - 1) 
+                                      })
+                                    }} 
+                                    className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-white rounded-lg text-xs font-bold"
+                                  >-</button>
+                                  <input 
+                                    type="range" min="1" max="10" 
+                                    value={configVisualSist.pcCount || 4} 
+                                    onChange={e => {
+                                      const n = parseInt(e.target.value)
+                                      actualizarConfigVisual({ 
+                                        pcCount: n, 
+                                        pcDrop: Math.min(configVisualSist.pcDrop || 0, n - 1) 
+                                      })
+                                    }}
+                                    className="flex-1 accent-amber-400 cursor-pointer"
+                                  />
+                                  <button 
+                                    type="button" 
+                                    onClick={() => actualizarConfigVisual({ pcCount: Math.min(10, (configVisualSist.pcCount || 4) + 1) })} 
+                                    className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-white rounded-lg text-xs font-bold"
+                                  >+</button>
+                                </div>
+                              </div>
+
+                              {/* Cuántas PCs eliminar con Stepper */}
+                              <div className="bg-[#080c14] p-2 rounded-xl border border-white/5">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-[9px] text-slate-400 font-bold uppercase">Eliminar Menores</span>
+                                  <span className="text-xs font-black text-red-400">
+                                    {(configVisualSist.pcDrop || 0) === 0 ? 'Ninguna' : `${configVisualSist.pcDrop} menor${configVisualSist.pcDrop > 1 ? 'es' : ''}`}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <button 
+                                    type="button" 
+                                    onClick={() => actualizarConfigVisual({ pcDrop: Math.max(0, (configVisualSist.pcDrop || 0) - 1) })} 
+                                    className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-white rounded-lg text-xs font-bold"
+                                  >-</button>
+                                  <input 
+                                    type="range" min="0" max={Math.max(0, (configVisualSist.pcCount || 4) - 1)} 
+                                    value={configVisualSist.pcDrop || 0} 
+                                    onChange={e => actualizarConfigVisual({ pcDrop: parseInt(e.target.value) })}
+                                    className="flex-1 accent-red-400 cursor-pointer"
+                                  />
+                                  <button 
+                                    type="button" 
+                                    onClick={() => actualizarConfigVisual({ pcDrop: Math.min(Math.max(0, (configVisualSist.pcCount || 4) - 1), (configVisualSist.pcDrop || 0) + 1) })} 
+                                    className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-white rounded-lg text-xs font-bold"
+                                  >+</button>
+                                </div>
                               </div>
                             </div>
-                            <div>
-                              <span className="block text-[9px] text-slate-400 font-bold uppercase mb-1">Regla de Eliminación</span>
-                              <select 
-                                value={configVisualSist.pcDrop}
-                                onChange={e => actualizarConfigVisual({ pcDrop: parseInt(e.target.value) })}
-                                className="w-full bg-[#080c14] border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white outline-none"
-                              >
-                                <option value={1}>Eliminar 1 menor (cuenta {Math.max(1, (configVisualSist.pcCount || 4) - 1)})</option>
-                                <option value={2}>Eliminar 2 menores (cuenta {Math.max(1, (configVisualSist.pcCount || 4) - 2)})</option>
-                                <option value={0}>Promediar todas (sin eliminar)</option>
-                              </select>
-                            </div>
+
+                            <p className="text-[10px] text-amber-300/80 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20 text-center font-medium">
+                              📝 Se rinden <strong>{configVisualSist.pcCount || 4} PCs</strong>, se descartan las <strong>{configVisualSist.pcDrop || 0} menores</strong> y se promedian las <strong>{Math.max(1, (configVisualSist.pcCount || 4) - (configVisualSist.pcDrop || 0))} mejores</strong>.
+                            </p>
                           </div>
                         )}
                       </div>
 
                       {/* Laboratorios */}
                       <div className={`p-3.5 rounded-2xl border transition-all ${configVisualSist.usaPL ? 'bg-purple-500/[0.04] border-purple-500/40' : 'bg-white/[0.02] border-white/[0.05] opacity-60'}`}>
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between mb-2">
                           <label className="flex items-center gap-3 cursor-pointer">
                             <input 
                               type="checkbox" 
@@ -1193,6 +1331,82 @@ export default function Dashboard() {
                             </div>
                           )}
                         </div>
+
+                        {configVisualSist.usaPL && (
+                          <div className="pt-2.5 border-t border-white/[0.06] space-y-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {/* Total de Labs */}
+                              <div className="bg-[#080c14] p-2 rounded-xl border border-white/5">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-[9px] text-slate-400 font-bold uppercase">Total de Labs</span>
+                                  <span className="text-xs font-black text-purple-400">{configVisualSist.labCount || 6} Labs</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <button 
+                                    type="button" 
+                                    onClick={() => {
+                                      const nuevoTotal = Math.max(1, (configVisualSist.labCount || 6) - 1)
+                                      actualizarConfigVisual({ 
+                                        labCount: nuevoTotal, 
+                                        labDrop: Math.min(configVisualSist.labDrop || 0, nuevoTotal - 1) 
+                                      })
+                                    }} 
+                                    className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-white rounded-lg text-xs font-bold"
+                                  >-</button>
+                                  <input 
+                                    type="range" min="1" max="12" 
+                                    value={configVisualSist.labCount || 6} 
+                                    onChange={e => {
+                                      const n = parseInt(e.target.value)
+                                      actualizarConfigVisual({ 
+                                        labCount: n, 
+                                        labDrop: Math.min(configVisualSist.labDrop || 0, n - 1) 
+                                      })
+                                    }}
+                                    className="flex-1 accent-purple-400 cursor-pointer"
+                                  />
+                                  <button 
+                                    type="button" 
+                                    onClick={() => actualizarConfigVisual({ labCount: Math.min(12, (configVisualSist.labCount || 6) + 1) })} 
+                                    className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-white rounded-lg text-xs font-bold"
+                                  >+</button>
+                                </div>
+                              </div>
+
+                              {/* Cuántos Labs eliminar */}
+                              <div className="bg-[#080c14] p-2 rounded-xl border border-white/5">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-[9px] text-slate-400 font-bold uppercase">Eliminar Menores</span>
+                                  <span className="text-xs font-black text-red-400">
+                                    {(configVisualSist.labDrop || 0) === 0 ? 'Ninguno' : `${configVisualSist.labDrop} menor${configVisualSist.labDrop > 1 ? 'es' : ''}`}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <button 
+                                    type="button" 
+                                    onClick={() => actualizarConfigVisual({ labDrop: Math.max(0, (configVisualSist.labDrop || 0) - 1) })} 
+                                    className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-white rounded-lg text-xs font-bold"
+                                  >-</button>
+                                  <input 
+                                    type="range" min="0" max={Math.max(0, (configVisualSist.labCount || 6) - 1)} 
+                                    value={configVisualSist.labDrop || 0} 
+                                    onChange={e => actualizarConfigVisual({ labDrop: parseInt(e.target.value) })}
+                                    className="flex-1 accent-red-400 cursor-pointer"
+                                  />
+                                  <button 
+                                    type="button" 
+                                    onClick={() => actualizarConfigVisual({ labDrop: Math.min(Math.max(0, (configVisualSist.labCount || 6) - 1), (configVisualSist.labDrop || 0) + 1) })} 
+                                    className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-white rounded-lg text-xs font-bold"
+                                  >+</button>
+                                </div>
+                              </div>
+                            </div>
+
+                            <p className="text-[10px] text-purple-300/80 bg-purple-500/10 px-2.5 py-1 rounded-lg border border-purple-500/20 text-center font-medium">
+                              🔬 Se rinden <strong>{configVisualSist.labCount || 6} Labs</strong>, se descartan los <strong>{configVisualSist.labDrop || 0} menores</strong> y se promedian los <strong>{Math.max(1, (configVisualSist.labCount || 6) - (configVisualSist.labDrop || 0))} mejores</strong>.
+                            </p>
+                          </div>
+                        )}
                       </div>
 
                       {/* Trabajos / Monografías */}
@@ -1248,7 +1462,7 @@ export default function Dashboard() {
                       <div className="p-4 rounded-2xl bg-[#080c14] border border-cyan-500/30 shadow-lg">
                         <span className="text-[9px] font-black text-cyan-400 uppercase tracking-widest block mb-2">Fórmula Resultante</span>
                         <div className="px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.08] font-mono text-cyan-300 font-bold text-sm tracking-wide text-center">
-                          PF = {sistMaestro.formula || 'PF'}
+                          PF = {limpiarFormula(sistMaestro.formula) || 'PF'}
                         </div>
                         <p className="text-[10px] text-slate-400 mt-2 text-center">
                           {configVisualSist.usaPP ? `Prácticas: se rinden ${configVisualSist.pcCount || 4} PCs y se ${configVisualSist.pcDrop > 0 ? `elimina(n) las ${configVisualSist.pcDrop} menor(es)` : 'promedian todas'}.` : 'Sin prácticas continuas.'}

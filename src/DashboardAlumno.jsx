@@ -20,16 +20,33 @@ function notaColor(nota) {
   return { text: 'text-red-400', bar: 'from-red-700 to-red-500', hex: '#ef4444' }
 }
 
+const extraerConfigDeFormula = (formulaStr) => {
+  if (!formulaStr) return null
+  const match = (formulaStr || '').match(/\/\*cfg:(.*?)\*\//)
+  if (match) {
+    try { return JSON.parse(match[1]) } catch (e) { return null }
+  }
+  return null
+}
+
+const limpiarFormula = (f) => {
+  if (!f) return 'PF'
+  return f.replace(/\/\*cfg:.*?\*\/\s*/g, '').trim()
+}
+
 const parsearCamposRequeridos = (sys) => {
   if (!sys) return []
-  const form = (sys.formula || '').toUpperCase()
+  const cfg = extraerConfigDeFormula(sys.formula)
+  const form = limpiarFormula(sys.formula).toUpperCase()
   const campos = []
 
   // Prácticas Calificadas (PCs)
   if (sys.usa_practicas || form.includes('SUM_PC3') || form.includes('SUM_PC5') || form.includes('PP_PC') || form.includes('PP_PC6') || form.includes('PP_MIXTO') || /\bPP\b/.test(form) || /\bPC\b/.test(form)) {
-    let pcCount = 4
-    if (form.includes('PP_MIXTO_5X5') || form.includes('5PC') || form.includes('PC5')) pcCount = 5
-    else if (form.includes('SUM_PC5') || form.includes('PP_PC6') || form.includes('6PC') || form.includes('PC6')) pcCount = 6
+    let pcCount = cfg?.pcCount || 4
+    if (!cfg) {
+      if (form.includes('PP_MIXTO_5X5') || form.includes('5PC') || form.includes('PC5')) pcCount = 5
+      else if (form.includes('SUM_PC5') || form.includes('PP_PC6') || form.includes('6PC') || form.includes('PC6')) pcCount = 6
+    }
     for (let i = 1; i <= pcCount; i++) campos.push({ id: `PC${i}`, label: `Práctica ${i}` })
   } else {
     for (let i = 1; i <= 6; i++) {
@@ -39,7 +56,7 @@ const parsearCamposRequeridos = (sys) => {
 
   // Laboratorios (PL / Labs)
   if (form.includes('LAB1') || form.includes('PP_LAB') || form.includes('PP_MIXTO') || /\bPL\b/.test(form)) {
-    const labCount = form.includes('PP_MIXTO_5X5') ? 5 : 6
+    let labCount = cfg?.labCount || (form.includes('PP_MIXTO_5X5') ? 5 : 6)
     for (let i = 1; i <= labCount; i++) campos.push({ id: `LAB${i}`, label: `Laboratorio ${i}` })
   }
 
@@ -61,48 +78,56 @@ const parsearCamposRequeridos = (sys) => {
 const evaluarSistema = (sys, notas) => {
   if (!sys) return null
   try {
-    let formula = (sys.formula || '').toUpperCase()
+    const cfg = extraerConfigDeFormula(sys.formula)
+    const formulaLimpia = limpiarFormula(sys.formula)
+    let formula = formulaLimpia.toUpperCase()
     
-    // PC logic (SUM_PC3, PP_PC, PP legacy, SUM_PC5, PP_PC6)
-    let sum3 = 0
-    let sum5 = 0
-    const is5x5 = formula.includes('PP_MIXTO_5X5')
-    const is6pc = formula.includes('SUM_PC5') || formula.includes('PP_PC6') || formula.includes('6PC')
+    // PC logic
+    let sumPC = 0
+    let countPCKept = 1
+    const pcTotal = cfg?.pcCount || 4
+    const pcDrop = cfg?.pcDrop !== undefined ? cfg.pcDrop : 1
+
     if (sys.usa_practicas || formula.includes('SUM_PC3') || formula.includes('SUM_PC5') || formula.includes('PP_PC') || formula.includes('PP_PC6') || formula.includes('PP_MIXTO') || /\bPP\b/.test(formula)) {
-      if (is6pc) {
-        const pcs = [1,2,3,4,5,6].map(i => parseFloat(notas[`PC${i}`]) || 0).sort((a,b) => b - a)
-        sum5 = pcs[0] + pcs[1] + pcs[2] + pcs[3] + pcs[4]
-      } else if (is5x5) {
-        const pcs = [1,2,3,4,5].map(i => parseFloat(notas[`PC${i}`]) || 0).sort((a,b) => b - a)
-        sum3 = pcs[0] + pcs[1] + pcs[2] + pcs[3]
-      } else {
-        const pcs = [1,2,3,4].map(i => parseFloat(notas[`PC${i}`]) || 0).sort((a,b) => b - a)
-        sum3 = pcs[0] + pcs[1] + pcs[2]
+      const pcsList = []
+      for (let i = 1; i <= pcTotal; i++) {
+        const val = parseFloat(notas[`PC${i}`]) || 0
+        pcsList.push(val)
       }
+      pcsList.sort((a,b) => b - a)
+      countPCKept = Math.max(1, pcTotal - pcDrop)
+      const kept = pcsList.slice(0, countPCKept)
+      sumPC = kept.reduce((a,b) => a + b, 0)
     }
 
-    // LAB logic (PP_LAB / PL)
-    let sum6 = 0
+    // LAB logic
+    let sumLAB = 0
+    let countLABKept = 1
+    const labTotal = cfg?.labCount || 6
+    const labDrop = cfg?.labDrop !== undefined ? cfg.labDrop : 1
+
     if (formula.includes('PP_LAB') || formula.includes('LAB1') || formula.includes('PP_MIXTO') || /\bPL\b/.test(formula)) {
-      if (is5x5) {
-        const labs = [1,2,3,4,5].map(i => parseFloat(notas[`LAB${i}`]) || 0).sort((a,b) => b - a)
-        sum6 = labs[0] + labs[1] + labs[2] + labs[3]
-      } else {
-        const labs = [1,2,3,4,5,6,7,8].map(i => parseFloat(notas[`LAB${i}`]) || 0).sort((a,b) => b - a)
-        sum6 = labs[0] + labs[1] + labs[2] + labs[3] + labs[4]
+      const labsList = []
+      for (let i = 1; i <= labTotal; i++) {
+        const val = parseFloat(notas[`LAB${i}`]) || 0
+        labsList.push(val)
       }
+      labsList.sort((a,b) => b - a)
+      countLABKept = Math.max(1, labTotal - labDrop)
+      const kept = labsList.slice(0, countLABKept)
+      sumLAB = kept.reduce((a,b) => a + b, 0)
     }
 
     const script = `
-      const SUM_PC3 = ${sum3};
-      const SUM_PC5 = ${sum5};
-      const PP_PC = ${is5x5 ? sum3 / 4 : sum3 / 3};
-      const PP = ${is5x5 ? sum3 / 4 : (is6pc ? sum5 / 5 : sum3 / 3)};
-      const PP_PC6 = ${sum5 / 5};
-      const PP_LAB = ${sum6 / 5};
-      const PL = ${sum6 / 5};
-      const PP_MIXTO = ${(sum3 + sum6) / 9};
-      const PP_MIXTO_5X5 = ${(sum3 + sum6) / 8};
+      const SUM_PC3 = ${sumPC};
+      const SUM_PC5 = ${sumPC};
+      const PP_PC = ${sumPC / countPCKept};
+      const PP = ${sumPC / countPCKept};
+      const PP_PC6 = ${sumPC / countPCKept};
+      const PP_LAB = ${sumLAB / countLABKept};
+      const PL = ${sumLAB / countLABKept};
+      const PP_MIXTO = ${(sumPC + sumLAB) / (countPCKept + countLABKept)};
+      const PP_MIXTO_5X5 = ${(sumPC + sumLAB) / (countPCKept + countLABKept)};
       
       let EP = ${parseFloat(notas.EP) || 0};
       let EF = ${parseFloat(notas.EF) || 0};
@@ -120,12 +145,6 @@ const evaluarSistema = (sys, notas) => {
       const FLOOR = (num) => Math.floor(num);
       const CEIL = (num) => Math.ceil(num);
 
-      const PC1 = ${parseFloat(notas.PC1) || 0};
-      const PC2 = ${parseFloat(notas.PC2) || 0};
-      const PC3 = ${parseFloat(notas.PC3) || 0};
-      const PC4 = ${parseFloat(notas.PC4) || 0};
-      const PC5 = ${parseFloat(notas.PC5) || 0};
-      const PC6 = ${parseFloat(notas.PC6) || 0};
       const TI = ${parseFloat(notas.TI) || parseFloat(notas.MON1) || 0};
       const MON = ${parseFloat(notas.MON) || parseFloat(notas.MON1) || 0};
       const MON1 = ${parseFloat(notas.MON1) || 0};
