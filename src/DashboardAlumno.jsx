@@ -477,8 +477,8 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
         const { data: p } = await supabase.from('perfiles').select('*').eq('user_id', user.id).single()
         if (p) {
           setPerfil(p)
-          if (!p.correo && user.email) {
-            supabase.from('perfiles').update({ correo: user.email }).eq('user_id', user.id).catch(() => {})
+          if (user.email && (!p.correo || p.correo !== user.email.toLowerCase())) {
+            supabase.from('perfiles').update({ correo: user.email.toLowerCase() }).eq('user_id', user.id).catch(() => {})
           }
         } else {
           const { data: carr } = await supabase.from('carreras').select('*')

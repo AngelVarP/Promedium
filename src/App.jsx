@@ -60,8 +60,15 @@ function LoginRegister() {
     setMensaje({ texto: '', tipo: '' })
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error
+        if (authData?.user?.email) {
+          try {
+            await supabase.from('perfiles').update({ correo: authData.user.email.toLowerCase() }).eq('user_id', authData.user.id)
+          } catch {
+            // Silencioso si la columna correo aún no está creada
+          }
+        }
         navigate('/dashboard')
       } else {
         const { error } = await supabase.auth.signUp({ 

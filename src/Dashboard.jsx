@@ -21,6 +21,7 @@ export default function Dashboard() {
 
   // Estados de Administradores Dinámicos (Super Admin)
   const [currentUserEmail, setCurrentUserEmail] = useState('')
+  const [currentUserId, setCurrentUserId] = useState('')
   const [listaAdmins, setListaAdmins] = useState([
     { correo: 'luis.vargas.p@uni.pe', creado_por: 'ROOT' },
     { correo: 'test@test.com', creado_por: 'ROOT' }
@@ -328,6 +329,12 @@ export default function Dashboard() {
   const fetchDatosEstructurales = async () => {
     setCargando(true)
     try {
+      try {
+        await supabase.rpc('sync_perfiles_correos')
+      } catch {
+        // Silencioso si la función no ha sido creada aún en Supabase
+      }
+
       const [resCat, resSist, resCarreras, resPerfiles] = await Promise.all([
         supabase.from('catalogo_cursos').select('*').order('ciclo_sugerido', { ascending: true }),
         supabase.from('sistemas_evaluacion').select('*'),
@@ -449,8 +456,19 @@ Se borrará todo su historial académico, matrículas y perfil de la plataforma.
     fetchDatosEstructurales()
     fetchCursosGlobales()
     fetchAdministradores()
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user?.email) setCurrentUserEmail(user.email.toLowerCase())
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (user) {
+        if (user.email) setCurrentUserEmail(user.email.toLowerCase())
+        if (user.id) {
+          setCurrentUserId(user.id)
+          try {
+            // Intentar asegurar que su propio perfil tenga su correo
+            await supabase.from('perfiles').update({ correo: user.email.toLowerCase() }).eq('user_id', user.id)
+          } catch {
+            // Silencioso si la columna correo aún no existe
+          }
+        }
+      }
     })
   }, [])
 
@@ -666,10 +684,26 @@ Se borrará todo su historial académico, matrículas y perfil de la plataforma.
       if (!p.user_id) return
       const uid = p.user_id.toLowerCase().trim()
       const carreraInfo = carreras.find(c => c.id === p.carrera_id)
+
+      let emailDetectado = p.correo ? p.correo.trim().toLowerCase() : null
+      // Si es el usuario logueado actualmente
+      if (!emailDetectado && currentUserId && uid === currentUserId.toLowerCase().trim()) {
+        emailDetectado = currentUserEmail
+      }
+      // Si coincide con Luis Vargas (por nombre o UID actual)
+      if (!emailDetectado && (uid === currentUserId?.toLowerCase()?.trim() || (p.nombre_completo || '').toLowerCase().includes('luis vargas'))) {
+        emailDetectado = 'luis.vargas.p@uni.pe'
+      }
+      // Si coincide con algún administrador registrado en listaAdmins
+      if (!emailDetectado) {
+        const adminFound = listaAdmins.find(a => (a.user_id && a.user_id.toLowerCase() === uid))
+        if (adminFound?.correo) emailDetectado = adminFound.correo.toLowerCase()
+      }
+
       mapa.set(uid, {
         id: p.user_id,
         nombre: p.nombre_completo || `Estudiante ${p.user_id.substring(0, 4).toUpperCase()}`,
-        correo: p.correo || null,
+        correo: emailDetectado,
         carrera: carreraInfo ? carreraInfo.nombre : 'Sin carrera asignada',
         carrera_id: p.carrera_id,
         cursos: 0,
@@ -683,10 +717,17 @@ Se borrará todo su historial académico, matrículas y perfil de la plataforma.
       if (!c.user_id) return
       const uid = c.user_id.toLowerCase().trim()
       if (!mapa.has(uid)) {
+        let emailDetectado = null
+        if (currentUserId && uid === currentUserId.toLowerCase().trim()) {
+          emailDetectado = currentUserEmail
+        }
+        if (!emailDetectado && (uid === currentUserId?.toLowerCase()?.trim())) {
+          emailDetectado = 'luis.vargas.p@uni.pe'
+        }
         mapa.set(uid, {
           id: c.user_id,
           nombre: `Estudiante ${c.user_id.substring(0, 4).toUpperCase()}`,
-          correo: null,
+          correo: emailDetectado,
           carrera: 'Sin carrera asignada',
           carrera_id: null,
           cursos: 0,
@@ -707,7 +748,8 @@ Se borrará todo su historial académico, matrículas y perfil de la plataforma.
 
   const usuariosFiltrados = usuariosAgrupados.filter(u => 
     u.nombre.toLowerCase().includes(busquedaUsuario.toLowerCase()) || 
-    u.id.toLowerCase().includes(busquedaUsuario.toLowerCase())
+    u.id.toLowerCase().includes(busquedaUsuario.toLowerCase()) ||
+    (u.correo && u.correo.toLowerCase().includes(busquedaUsuario.toLowerCase()))
   )
 
   let globalSum = 0; let globalCount = 0; let aprobadosCount = 0;
@@ -1051,7 +1093,7 @@ Se borrará todo su historial académico, matrículas y perfil de la plataforma.
                 Directorio General de Estudiantes ({usuariosFiltrados.length})
               </h3>
               <input
-                type="text" placeholder="Buscar por nombre o ID..."
+                type="text" placeholder="Buscar por nombre, correo o ID..."
                 className="bg-[#080c14] border border-white/[0.08] px-4 py-3 rounded-xl text-xs font-bold text-white placeholder-slate-500 outline-none focus:border-cyan-500/30 w-full sm:w-80"
                 value={busquedaUsuario} onChange={(e) => setBusquedaUsuario(e.target.value)}
               />
@@ -1077,7 +1119,7 @@ Se borrará todo su historial académico, matrículas y perfil de la plataforma.
                 const iniciales = (user.nombre || 'E').split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase()
                 
                 const esSuperAdmin = currentUserEmail === 'luis.vargas.p@uni.pe'
-                const esRootUser = (user.correo || '').toLowerCase() === 'luis.vargas.p@uni.pe'
+                const esRootUser = (user.correo || '').toLowerCase() === 'luis.vargas.p@uni.pe' || (currentUserId && user.id && user.id.toLowerCase() === currentUserId.toLowerCase() && currentUserEmail === 'luis.vargas.p@uni.pe')
                 const esAdminUser = esRootUser || listaAdmins.some(a => a.correo.toLowerCase() === (user.correo || '').toLowerCase())
 
                 return (
