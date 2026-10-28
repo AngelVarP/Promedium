@@ -45,6 +45,15 @@ function LoginRegister() {
   const [focused, setFocused] = useState(null)
   const navigate = useNavigate()
 
+  // Si ya tiene sesión activa, redirigir automáticamente al dashboard
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        navigate('/dashboard', { replace: true })
+      }
+    })
+  }, [navigate])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
@@ -210,9 +219,13 @@ function LoginRegister() {
 
 function App() {
   const [userEmail, setUserEmail] = useState(null)
+  const [cargandoApp, setCargandoApp] = useState(true)
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => { if (user) setUserEmail(user.email) })
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUserEmail(session?.user?.email || null)
+      setCargandoApp(false)
+    })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUserEmail(session?.user?.email || null)
     })
@@ -220,6 +233,18 @@ function App() {
   }, [])
 
   const MI_CORREO_ADMIN = "test@test.com"
+
+  if (cargandoApp) {
+    return (
+      <div className="min-h-screen bg-[#080c14] flex flex-col items-center justify-center gap-4">
+        <div className="relative w-14 h-14">
+          <div className="absolute inset-0 rounded-full border-2 border-cyan-500/10 border-t-cyan-400 animate-spin"></div>
+          <div className="absolute inset-2 rounded-full border-2 border-cyan-500/5 border-t-cyan-500/40 animate-spin" style={{animationDirection:'reverse', animationDuration:'1.5s'}}></div>
+        </div>
+        <p className="text-cyan-400/70 text-[10px] font-bold tracking-[0.3em] uppercase animate-pulse">Cargando Promedium</p>
+      </div>
+    )
+  }
 
   return (
     <BrowserRouter>
@@ -230,6 +255,7 @@ function App() {
             {userEmail === MI_CORREO_ADMIN ? <Dashboard /> : <DashboardAlumno />}
           </RutaProtegida>
         } />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   )
