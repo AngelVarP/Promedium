@@ -928,10 +928,16 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="col-span-1 sm:col-span-2">
-                  <label className="block text-[9px] text-slate-500 font-bold uppercase mb-2">Sistema de Evaluación</label>
+                  <label className="block text-[9px] text-slate-500 font-bold uppercase mb-2">
+                    Sistema de Evaluación ({carreras.find(c => c.id === cursoMaestro.carrera_id)?.facultad || facultadSeleccionada})
+                  </label>
                   <select className="w-full px-4 py-3 bg-[#0d1220] border border-white/[0.08] rounded-xl text-white outline-none cursor-pointer" value={cursoMaestro.sistema_evaluacion} onChange={e => setCursoMaestro({...cursoMaestro, sistema_evaluacion: e.target.value})}>
-                    {sistemas.map(sys => <option key={sys.id} value={sys.id} style={{background:'#0d1220'}}>{sys.nombre}</option>)}
-                    {sistemas.length === 0 && <option value="" style={{background:'#0d1220'}}>Sin sistemas — crea uno primero</option>}
+                    {sistemas.filter(s => (s.facultad || 'FIIS') === (carreras.find(c => c.id === cursoMaestro.carrera_id)?.facultad || facultadSeleccionada)).map(sys => (
+                      <option key={sys.id} value={sys.id} style={{background:'#0d1220'}}>{sys.nombre} ({sys.id})</option>
+                    ))}
+                    {sistemas.filter(s => (s.facultad || 'FIIS') === (carreras.find(c => c.id === cursoMaestro.carrera_id)?.facultad || facultadSeleccionada)).length === 0 && (
+                      <option value="" style={{background:'#0d1220'}}>Sin sistemas para esta facultad — crea uno primero</option>
+                    )}
                   </select>
                 </div>
                 <div className="col-span-1 sm:col-span-2">
