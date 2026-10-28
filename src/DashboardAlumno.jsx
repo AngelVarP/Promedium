@@ -475,8 +475,12 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
         setUserEmail(user.email)
         setUserId(user.id)
         const { data: p } = await supabase.from('perfiles').select('*').eq('user_id', user.id).single()
-        if (p) setPerfil(p)
-        else {
+        if (p) {
+          setPerfil(p)
+          if (!p.correo && user.email) {
+            supabase.from('perfiles').update({ correo: user.email }).eq('user_id', user.id).catch(() => {})
+          }
+        } else {
           const { data: carr } = await supabase.from('carreras').select('*')
           setCarrerasDisponibles(carr || [])
         }
@@ -1600,7 +1604,7 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
                   key={c.id} 
                   onClick={async () => {
                     if (!nombreInput.trim()) { alert("Por favor ingresa tu nombre"); return; }
-                    const { data, error } = await supabase.from('perfiles').upsert({ user_id: userId, carrera_id: c.id, nombre_completo: nombreInput.trim() }, { onConflict: 'user_id' }).select().single()
+                    const { data, error } = await supabase.from('perfiles').upsert({ user_id: userId, carrera_id: c.id, nombre_completo: nombreInput.trim(), correo: userEmail }, { onConflict: 'user_id' }).select().single()
                     if (error) {
                       alert("Error guardando perfil: " + error.message + "\n\n¿Ejecutaste el script SQL para agregar la columna nombre_completo?")
                       console.error("Upsert error:", error)

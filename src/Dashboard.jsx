@@ -332,7 +332,7 @@ export default function Dashboard() {
         supabase.from('catalogo_cursos').select('*').order('ciclo_sugerido', { ascending: true }),
         supabase.from('sistemas_evaluacion').select('*'),
         supabase.from('carreras').select('*'),
-        supabase.from('perfiles').select('user_id, nombre_completo')
+        supabase.from('perfiles').select('*')
       ])
       if (resCat.error) console.error('[catalogo_cursos] Error Supabase:', resCat.error.message)
       if (resSist.error) console.error('[sistemas_evaluacion] Error Supabase:', resSist.error.message)
@@ -390,6 +390,40 @@ export default function Dashboard() {
       console.error(err)
     } finally {
       setGuardandoAdmin(false)
+    }
+  }
+
+  const eliminarUsuario = async (userId, nombreUsuario) => {
+    if (currentUserEmail !== 'luis.vargas.p@uni.pe') {
+      alert('Solo el Administrador Supremo puede eliminar usuarios de la plataforma.')
+      return
+    }
+
+    if (!confirm(`¿Estás SEGURO de eliminar al usuario "${nombreUsuario}"?
+
+Se borrará todo su historial académico, matrículas y perfil de la plataforma.`)) {
+      return
+    }
+
+    try {
+      // 1. Borrar cursos matriculados
+      await supabase.from('cursos').delete().eq('user_id', userId)
+      // 2. Borrar perfil
+      await supabase.from('perfiles').delete().eq('user_id', userId)
+      
+      // 3. Si era admin, revocarlo
+      const perfilInfo = perfiles.find(p => (p.user_id || '').toLowerCase().trim() === userId.toLowerCase().trim())
+      if (perfilInfo?.correo) {
+        await supabase.from('administradores').delete().eq('correo', perfilInfo.correo.toLowerCase().trim())
+      }
+
+      alert(`Usuario ${nombreUsuario} eliminado exitosamente.`)
+      fetchDatosEstructurales()
+      fetchCursosGlobales()
+      fetchAdministradores()
+    } catch (err) {
+      alert('Error eliminando usuario: ' + err.message)
+      console.error(err)
     }
   }
 
@@ -623,40 +657,52 @@ export default function Dashboard() {
     { id: 'reportes', label: 'Reportes', icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
   ]
 
-  // Stats Globales
+  // Stats Globales deduplicados rigurosamente por ID
   const usuariosAgrupados = (() => {
-    const mapa = {}
+    const mapa = new Map()
 
     // 1. Incluir a todos los usuarios registrados en la tabla de perfiles
     perfiles.forEach(p => {
-      mapa[p.user_id] = {
+      if (!p.user_id) return
+      const uid = p.user_id.toLowerCase().trim()
+      const carreraInfo = carreras.find(c => c.id === p.carrera_id)
+      mapa.set(uid, {
         id: p.user_id,
         nombre: p.nombre_completo || `Estudiante ${p.user_id.substring(0, 4).toUpperCase()}`,
+        correo: p.correo || null,
+        carrera: carreraInfo ? carreraInfo.nombre : 'Sin carrera asignada',
+        carrera_id: p.carrera_id,
         cursos: 0,
         sumNotas: 0,
         conNota: 0
-      }
+      })
     })
 
     // 2. Acumular cursos y promedios de cursosGlobales
     cursosGlobales.forEach(c => {
-      if (!mapa[c.user_id]) {
-        mapa[c.user_id] = {
+      if (!c.user_id) return
+      const uid = c.user_id.toLowerCase().trim()
+      if (!mapa.has(uid)) {
+        mapa.set(uid, {
           id: c.user_id,
           nombre: `Estudiante ${c.user_id.substring(0, 4).toUpperCase()}`,
+          correo: null,
+          carrera: 'Sin carrera asignada',
+          carrera_id: null,
           cursos: 0,
           sumNotas: 0,
           conNota: 0
-        }
+        })
       }
-      mapa[c.user_id].cursos += 1
+      const item = mapa.get(uid)
+      item.cursos += 1
       if (c.promedio !== null && c.promedio !== undefined && !isNaN(parseFloat(c.promedio))) {
-        mapa[c.user_id].sumNotas += parseFloat(c.promedio)
-        mapa[c.user_id].conNota += 1
+        item.sumNotas += parseFloat(c.promedio)
+        item.conNota += 1
       }
     })
 
-    return Object.values(mapa)
+    return Array.from(mapa.values())
   })()
 
   const usuariosFiltrados = usuariosAgrupados.filter(u => 
@@ -925,12 +971,12 @@ export default function Dashboard() {
                     Administradores con Superpoderes
                   </h3>
                   <p className="text-xs text-slate-400 mt-1 max-w-xl">
-                    Otorga acceso de Administrador a otros estudiantes (como tu amigo de Ciencias) para que configuren materias y sistemas de evaluación directamente desde su cuenta.
+                    Otorga acceso de Administrador a otros estudiantes autorizados para que puedan configurar materias y sistemas de evaluación directamente desde su cuenta.
                   </p>
                 </div>
 
-                {/* Formulario para agregar nuevo admin */}
-                <form onSubmit={agregarAdmin} className="w-full lg:w-auto flex flex-col sm:flex-row gap-2.5">
+                {/* Formulario para agregar nuevo admin (Solo Admin Supremo) */}
+                {currentUserEmail === 'luis.vargas.p@uni.pe' && (<form onSubmit={agregarAdmin} className="w-full lg:w-auto flex flex-col sm:flex-row gap-2.5">
                   <input
                     type="email"
                     required
@@ -946,7 +992,7 @@ export default function Dashboard() {
                   >
                     <span>⚡</span> {guardandoAdmin ? 'Otorgando...' : 'Dar Poderes'}
                   </button>
-                </form>
+                </form>)}
               </div>
 
               {/* Lista de administradores activos */}
@@ -1028,30 +1074,111 @@ export default function Dashboard() {
                 const prom = user.conNota > 0 ? (user.sumNotas / user.conNota).toFixed(1) : '--'
                 const colorVariations = ['from-blue-500 to-cyan-500', 'from-purple-500 to-pink-500', 'from-amber-500 to-orange-500', 'from-emerald-500 to-teal-500']
                 const bgGradient = colorVariations[i % colorVariations.length]
-                const iniciales = user.nombre.split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase()
+                const iniciales = (user.nombre || 'E').split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase()
                 
+                const esSuperAdmin = currentUserEmail === 'luis.vargas.p@uni.pe'
+                const esRootUser = (user.correo || '').toLowerCase() === 'luis.vargas.p@uni.pe'
+                const esAdminUser = esRootUser || listaAdmins.some(a => a.correo.toLowerCase() === (user.correo || '').toLowerCase())
+
                 return (
-                  <div key={user.id} className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-6 hover:border-white/20 transition-colors flex flex-col items-center text-center">
-                    <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${bgGradient} p-1 mb-4 shadow-lg`}>
-                      <div className="w-full h-full bg-[#080c14] rounded-full flex items-center justify-center">
-                        <span className={`text-lg font-black text-transparent bg-clip-text bg-gradient-to-br ${bgGradient}`}>
-                          {iniciales}
-                        </span>
+                  <div key={user.id} className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-5 hover:border-white/20 transition-all flex flex-col justify-between">
+                    <div>
+                      {/* Header de la tarjeta */}
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${bgGradient} p-0.5 shadow-md shrink-0`}>
+                            <div className="w-full h-full bg-[#080c14] rounded-xl flex items-center justify-center">
+                              <span className={`text-xs font-black text-transparent bg-clip-text bg-gradient-to-br ${bgGradient}`}>
+                                {iniciales}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-xs font-black text-white uppercase tracking-tight truncate" title={user.nombre}>
+                              {user.nombre}
+                            </h4>
+                            <span className="text-[10px] text-cyan-400 font-mono truncate block" title={user.correo || 'Sin correo'}>
+                              {user.correo ? `✉️ ${user.correo}` : '✉️ Sin correo registrado'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Badge de Rol */}
+                        {esRootUser ? (
+                          <span className="text-[9px] font-black text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full shrink-0">
+                            👑 Supremo
+                          </span>
+                        ) : esAdminUser ? (
+                          <span className="text-[9px] font-black text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full shrink-0">
+                            🛡️ Admin
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-bold text-slate-500 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full shrink-0">
+                            🎓 Alumno
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Carrera y UUID */}
+                      <div className="space-y-1 mb-4 bg-[#080c14] p-2.5 rounded-xl border border-white/[0.04] text-[10px]">
+                        <div className="flex justify-between items-center text-slate-400">
+                          <span className="font-bold">Carrera:</span>
+                          <span className="text-white truncate max-w-[150px] font-medium">{user.carrera}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-slate-500 font-mono text-[9px]">
+                          <span>ID:</span>
+                          <span className="truncate max-w-[150px]">{user.id}</span>
+                        </div>
+                      </div>
+
+                      {/* Estadísticas de Cursos y Promedio */}
+                      <div className="grid grid-cols-2 gap-2 mb-3">
+                        <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-2 text-center">
+                          <span className="text-[9px] text-slate-500 font-bold uppercase block">Cursos</span>
+                          <span className="text-base font-black text-white">{user.cursos}</span>
+                        </div>
+                        <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-2 text-center">
+                          <span className="text-[9px] text-slate-500 font-bold uppercase block">Promedio</span>
+                          <span className={`text-base font-black font-mono ${prom !== '--' && parseFloat(prom) >= 10 ? 'text-cyan-400' : 'text-slate-500'}`}>
+                            {prom}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                    <h4 className="text-sm font-black text-white mb-1 uppercase tracking-tight w-full truncate">{user.nombre}</h4>
-                    <p className="text-[9px] font-mono text-slate-500 truncate w-full mb-5">{user.id}</p>
-                    
-                    <div className="w-full flex gap-3">
-                      <div className="flex-1 bg-white/[0.03] border border-white/[0.05] rounded-xl p-3">
-                        <p className="text-[9px] text-slate-500 font-bold uppercase mb-1">Cursos</p>
-                        <p className="text-xl font-black text-white">{user.cursos}</p>
+
+                    {/* Acciones exclusivas del Admin Supremo */}
+                    {esSuperAdmin && !esRootUser && (
+                      <div className="pt-2.5 border-t border-white/[0.05] flex items-center justify-between gap-2">
+                        {esAdminUser ? (
+                          <button
+                            type="button"
+                            onClick={() => revocarAdmin(user.correo || user.id)}
+                            className="text-[9px] font-bold text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20 transition-all cursor-pointer"
+                          >
+                            Quitar Admin
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={!user.correo}
+                            onClick={() => agregarAdmin(null, user.correo)}
+                            className="text-[9px] font-black text-cyan-400 hover:text-white hover:bg-cyan-500/20 px-2.5 py-1 rounded-lg border border-cyan-500/30 transition-all cursor-pointer disabled:opacity-40"
+                            title={!user.correo ? 'Sin correo para asignar poderes' : 'Dar poderes de Administrador'}
+                          >
+                            + Dar Admin
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => eliminarUsuario(user.id, user.nombre)}
+                          className="text-[9px] font-bold text-red-400/80 hover:text-red-300 hover:bg-red-500/10 px-2.5 py-1 rounded-lg border border-red-500/20 transition-all cursor-pointer flex items-center gap-1"
+                          title="Eliminar usuario de la plataforma"
+                        >
+                          <span>🗑️</span> Eliminar
+                        </button>
                       </div>
-                      <div className="flex-1 bg-white/[0.03] border border-white/[0.05] rounded-xl p-3">
-                        <p className="text-[9px] text-slate-500 font-bold uppercase mb-1">Promedio</p>
-                        <p className={`text-xl font-black ${prom >= 10 ? 'text-emerald-400' : 'text-amber-400'}`}>{prom}</p>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 )
               })}
