@@ -550,21 +550,40 @@ export default function Dashboard() {
   ]
 
   // Stats Globales
-  const usuariosAgrupados = Object.values(cursosGlobales.reduce((acc, c) => {
-    if (!acc[c.user_id]) acc[c.user_id] = { id: c.user_id, cursos: 0, sumNotas: 0, conNota: 0 }
-    acc[c.user_id].cursos += 1
-    if (c.promedio !== null && c.promedio !== undefined) {
-      acc[c.user_id].sumNotas += parseFloat(c.promedio)
-      acc[c.user_id].conNota += 1
-    }
-    return acc
-  }, {})).map(u => {
-    const perfil = perfiles.find(p => p.user_id === u.id)
-    return { 
-      ...u, 
-      nombre: perfil?.nombre_completo || `Estudiante ${u.id.substring(0, 4).toUpperCase()}`
-    }
-  })
+  const usuariosAgrupados = (() => {
+    const mapa = {}
+
+    // 1. Incluir a todos los usuarios registrados en la tabla de perfiles
+    perfiles.forEach(p => {
+      mapa[p.user_id] = {
+        id: p.user_id,
+        nombre: p.nombre_completo || `Estudiante ${p.user_id.substring(0, 4).toUpperCase()}`,
+        cursos: 0,
+        sumNotas: 0,
+        conNota: 0
+      }
+    })
+
+    // 2. Acumular cursos y promedios de cursosGlobales
+    cursosGlobales.forEach(c => {
+      if (!mapa[c.user_id]) {
+        mapa[c.user_id] = {
+          id: c.user_id,
+          nombre: `Estudiante ${c.user_id.substring(0, 4).toUpperCase()}`,
+          cursos: 0,
+          sumNotas: 0,
+          conNota: 0
+        }
+      }
+      mapa[c.user_id].cursos += 1
+      if (c.promedio !== null && c.promedio !== undefined && !isNaN(parseFloat(c.promedio))) {
+        mapa[c.user_id].sumNotas += parseFloat(c.promedio)
+        mapa[c.user_id].conNota += 1
+      }
+    })
+
+    return Object.values(mapa)
+  })()
 
   const usuariosFiltrados = usuariosAgrupados.filter(u => 
     u.nombre.toLowerCase().includes(busquedaUsuario.toLowerCase()) || 
