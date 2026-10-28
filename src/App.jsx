@@ -217,27 +217,47 @@ function LoginRegister() {
   )
 }
 
-export const CORREOS_ADMIN = [
+export const SUPER_ADMIN_EMAIL = "luis.vargas.p@uni.pe"
+export const CORREOS_ADMIN_DEFAULT = [
   "test@test.com",
   "luis.vargas.p@uni.pe"
 ]
 
 function App() {
   const [userEmail, setUserEmail] = useState(null)
+  const [adminList, setAdminList] = useState(CORREOS_ADMIN_DEFAULT.map(e => e.toLowerCase()))
   const [cargandoApp, setCargandoApp] = useState(true)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUserEmail(session?.user?.email || null)
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      const email = session?.user?.email || null
+      setUserEmail(email)
+
+      // Cargar lista dinámica de administradores desde la base de datos
+      try {
+        const { data: dbAdmins } = await supabase.from('administradores').select('correo')
+        if (dbAdmins && dbAdmins.length > 0) {
+          const correos = dbAdmins.map(d => (d.correo || '').toLowerCase().trim())
+          if (!correos.includes(SUPER_ADMIN_EMAIL.toLowerCase())) correos.push(SUPER_ADMIN_EMAIL.toLowerCase())
+          setAdminList(correos)
+        }
+      } catch (err) {
+        console.warn('Tabla administradores aún no creada o sin datos:', err)
+      }
+
       setCargandoApp(false)
     })
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUserEmail(session?.user?.email || null)
     })
     return () => subscription.unsubscribe()
   }, [])
 
-  const esAdmin = CORREOS_ADMIN.map(e => e.toLowerCase()).includes((userEmail || '').toLowerCase())
+  const esAdmin = Boolean(
+    (userEmail && userEmail.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) ||
+    (userEmail && adminList.includes(userEmail.toLowerCase().trim()))
+  )
 
   if (cargandoApp) {
     return (

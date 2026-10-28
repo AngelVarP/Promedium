@@ -299,8 +299,24 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
   const [carrerasDisponibles, setCarrerasDisponibles] = useState([])
   const [nombreInput, setNombreInput] = useState('')
 
-  const CORREOS_ADMIN = ['test@test.com', 'luis.vargas.p@uni.pe']
-  const esAdmin = Boolean(esAdminProp || CORREOS_ADMIN.map(e => e.toLowerCase()).includes((userEmail || '').toLowerCase()))
+  const [esAdminDin, setEsAdminDin] = useState(false)
+
+  useEffect(() => {
+    if (userEmail) {
+      const emailLower = userEmail.toLowerCase().trim()
+      if (emailLower === 'luis.vargas.p@uni.pe' || emailLower === 'test@test.com') {
+        setEsAdminDin(true)
+      } else {
+        supabase.from('administradores').select('correo').then(({ data }) => {
+          if (data && data.some(d => (d.correo || '').toLowerCase().trim() === emailLower)) {
+            setEsAdminDin(true)
+          }
+        }).catch(() => {})
+      }
+    }
+  }, [userEmail])
+
+  const esAdmin = Boolean(esAdminProp || esAdminDin)
 
   // Diccionario Dinámico de Sistemas de Evaluación
   const [sistemasDict, setSistemasDict] = useState({})

@@ -19,6 +19,15 @@ export default function Dashboard() {
   const [carreras, setCarreras] = useState([])
   const [perfiles, setPerfiles] = useState([])
 
+  // Estados de Administradores Dinámicos (Super Admin)
+  const [currentUserEmail, setCurrentUserEmail] = useState('')
+  const [listaAdmins, setListaAdmins] = useState([
+    { correo: 'luis.vargas.p@uni.pe', creado_por: 'ROOT' },
+    { correo: 'test@test.com', creado_por: 'ROOT' }
+  ])
+  const [nuevoAdminEmail, setNuevoAdminEmail] = useState('')
+  const [guardandoAdmin, setGuardandoAdmin] = useState(false)
+
   // Estados UI
   const [tabActiva, setTabActiva] = useState('malla')
   const [busqueda, setBusqueda] = useState('')
@@ -341,9 +350,74 @@ export default function Dashboard() {
     if (data) setCursosGlobales(data)
   }
 
+  const fetchAdministradores = async () => {
+    try {
+      const { data } = await supabase.from('administradores').select('*').order('created_at', { ascending: true })
+      if (data && data.length > 0) {
+        setListaAdmins(data)
+      }
+    } catch (e) {
+      console.warn('Tabla administradores no disponible:', e)
+    }
+  }
+
+  const agregarAdmin = async (e, correoManual = null) => {
+    if (e) e.preventDefault()
+    const targetEmail = (correoManual || nuevoAdminEmail).trim().toLowerCase()
+    if (!targetEmail) return
+    if (!targetEmail.includes('@')) {
+      alert('Por favor ingresa un correo válido.')
+      return
+    }
+
+    setGuardandoAdmin(true)
+    try {
+      const { error } = await supabase.from('administradores').upsert([
+        { correo: targetEmail, creado_por: currentUserEmail || 'luis.vargas.p@uni.pe' }
+      ], { onConflict: 'correo' })
+
+      if (error) {
+        alert('Aviso: Para que el guardado persista en Supabase, asegúrate de haber corrido el script SQL de la tabla administradores. Error: ' + error.message)
+      }
+
+      // Actualizar estado local inmediatamente
+      if (!listaAdmins.some(a => a.correo.toLowerCase() === targetEmail)) {
+        setListaAdmins(prev => [...prev, { correo: targetEmail, creado_por: currentUserEmail }])
+      }
+      setNuevoAdminEmail('')
+      alert(`¡Poderes de Administrador otorgados exitosamente a ${targetEmail}!`)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setGuardandoAdmin(false)
+    }
+  }
+
+  const revocarAdmin = async (correo) => {
+    const emailNorm = correo.trim().toLowerCase()
+    if (emailNorm === 'luis.vargas.p@uni.pe') {
+      alert('¡Acción denegada! No se puede revocar al Administrador Supremo.')
+      return
+    }
+
+    if (!confirm(`¿Estás seguro de quitarle los poderes de administrador a ${emailNorm}?`)) return
+
+    try {
+      await supabase.from('administradores').delete().eq('correo', emailNorm)
+      setListaAdmins(prev => prev.filter(a => a.correo.toLowerCase() !== emailNorm))
+      alert(`Poderes revocados para ${emailNorm}.`)
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
   useEffect(() => { 
     fetchDatosEstructurales()
     fetchCursosGlobales()
+    fetchAdministradores()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.email) setCurrentUserEmail(user.email.toLowerCase())
+    })
   }, [])
 
   // Cuando los sistemas carguen, sincronizar el valor del modal si estaba en fallback
@@ -830,9 +904,106 @@ export default function Dashboard() {
         )}
 
         {tabActiva === 'usuarios' && (
-          <div className="animate-in fade-in duration-300">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4 bg-white/[0.02] border border-white/[0.05] p-3 rounded-2xl">
-              <h3 className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.2em] px-4">Directorio ({usuariosFiltrados.length})</h3>
+          <div className="animate-in fade-in duration-300 space-y-8">
+            
+            {/* PANEL EXCLUSIVO: GESTIÓN DE PODERES DE ADMINISTRADOR (ADMIN SUPREMO) */}
+            <div className="bg-gradient-to-br from-amber-500/[0.05] via-orange-500/[0.02] to-transparent border border-amber-500/30 rounded-3xl p-6 sm:p-8 shadow-[0_0_50px_rgba(245,158,11,0.08)] relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/5 rounded-full blur-3xl pointer-events-none"></div>
+
+              <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 pb-6 border-b border-amber-500/20">
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-base">👑</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-400">
+                      Gestión de Roles y Poderes
+                    </span>
+                    <span className="text-[9px] font-bold text-amber-300 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
+                      Admin Supremo: luis.vargas.p@uni.pe
+                    </span>
+                  </div>
+                  <h3 className="text-xl sm:text-2xl font-black text-white">
+                    Administradores con Superpoderes
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1 max-w-xl">
+                    Otorga acceso de Administrador a otros estudiantes (como tu amigo de Ciencias) para que configuren materias y sistemas de evaluación directamente desde su cuenta.
+                  </p>
+                </div>
+
+                {/* Formulario para agregar nuevo admin */}
+                <form onSubmit={agregarAdmin} className="w-full lg:w-auto flex flex-col sm:flex-row gap-2.5">
+                  <input
+                    type="email"
+                    required
+                    placeholder="correo@uni.pe o correo@gmail..."
+                    value={nuevoAdminEmail}
+                    onChange={e => setNuevoAdminEmail(e.target.value)}
+                    className="px-4 py-2.5 bg-[#080c14] border border-amber-500/30 rounded-xl text-xs text-white placeholder-slate-500 outline-none focus:border-amber-400 w-full sm:w-72 font-mono"
+                  />
+                  <button
+                    type="submit"
+                    disabled={guardandoAdmin}
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-[10px] uppercase tracking-wider transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <span>⚡</span> {guardandoAdmin ? 'Otorgando...' : 'Dar Poderes'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Lista de administradores activos */}
+              <div className="pt-6">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-3">
+                  Administradores Autorizados ({listaAdmins.length})
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {listaAdmins.map(admin => {
+                    const esRoot = admin.correo.toLowerCase() === 'luis.vargas.p@uni.pe'
+                    return (
+                      <div 
+                        key={admin.correo}
+                        className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 transition-all ${
+                          esRoot 
+                            ? 'bg-amber-500/10 border-amber-500/40 shadow-[0_0_20px_rgba(245,158,11,0.1)]' 
+                            : 'bg-white/[0.03] border-white/10 hover:border-amber-500/30'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold ${
+                            esRoot ? 'bg-amber-400 text-black' : 'bg-white/10 text-white'
+                          }`}>
+                            {esRoot ? '👑' : '🛡️'}
+                          </div>
+                          <div className="min-w-0">
+                            <span className="block text-xs font-bold text-white truncate font-mono">
+                              {admin.correo}
+                            </span>
+                            <span className="text-[9px] text-amber-400/80 font-bold uppercase tracking-wider">
+                              {esRoot ? 'Admin Supremo' : 'Admin Autorizado'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {!esRoot && (
+                          <button
+                            type="button"
+                            onClick={() => revocarAdmin(admin.correo)}
+                            className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors text-xs font-bold"
+                            title="Revocar poderes de administrador"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* BARRA DE DIRECTORIO GENERAL */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white/[0.02] border border-white/[0.05] p-3 rounded-2xl">
+              <h3 className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.2em] px-4">
+                Directorio General de Estudiantes ({usuariosFiltrados.length})
+              </h3>
               <input
                 type="text" placeholder="Buscar por nombre o ID..."
                 className="bg-[#080c14] border border-white/[0.08] px-4 py-3 rounded-xl text-xs font-bold text-white placeholder-slate-500 outline-none focus:border-cyan-500/30 w-full sm:w-80"
