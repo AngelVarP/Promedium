@@ -182,7 +182,7 @@ function CircularGauge({ value }) {
 
   return (
     <div className="relative flex flex-col items-center">
-      <svg width="200" height="150" viewBox="0 0 200 150" className="drop-shadow-2xl">
+      <svg viewBox="0 0 200 150" className="w-32 h-24 sm:w-40 sm:h-28 md:w-44 md:h-32 drop-shadow-2xl">
         <path d={arcPath(startDeg, bgEnd)} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="18" strokeLinecap="round" />
         <path d={arcPath(startDeg, fillEnd)} fill="none" stroke={color} strokeWidth="18" strokeLinecap="round" className="transition-all duration-1000 ease-out" />
         <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize="48" fontWeight="900" className="tracking-tighter">
@@ -755,54 +755,235 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
   }
 
   const NOTA_APROBATORIA = 10.0
-  const calcularRiesgo = (detalleReal, sys, camposReq, meta) => {
+  const PRIORIDAD = ['EF', 'EP', 'MON2', 'MON1', 'LAB8', 'LAB7', 'LAB6', 'LAB5', 'LAB4', 'LAB3', 'LAB2', 'LAB1', 'PC4', 'PC3', 'PC2', 'PC1', 'PF']
+
+  const calcularRiesgo = (det, sys, camposReq, meta) => {
     if (!sys) return 'unknown'
-    const best = { ...detalleReal }; camposReq.forEach(c => { if (best[c.id] == null || best[c.id] === '') best[c.id] = 20 })
+    const prom = evaluarSistema(sys, det)
+    if (prom !== null) {
+      if (prom >= meta) return 'meta'
+      if (prom >= NOTA_APROBATORIA) return 'seguro'
+    }
+
+    // Verificar si con 20 en lo restante alcanza para aprobar
+    const best = { ...det }
+    camposReq.forEach(c => { if (best[c.id] == null || best[c.id] === '') best[c.id] = 20 })
     if ((evaluarSistema(sys, best) || 0) < NOTA_APROBATORIA) return 'critico'
-    const worst = { ...detalleReal }; camposReq.forEach(c => { if (worst[c.id] == null || worst[c.id] === '') worst[c.id] = 0 })
-    if ((evaluarSistema(sys, worst) || 0) >= meta) return 'meta'
-    if ((evaluarSistema(sys, worst) || 0) >= NOTA_APROBATORIA) return 'seguro'
     return 'peligro'
+  }
+
+  const reiniciarCursoSimulado = (cursoId) => {
+    const curso = cursos.find(c => c.id === cursoId)
+    if (!curso) return
+    setSimuladorLocal(prev => ({
+      ...prev,
+      [cursoId]: { ...(curso.notas_detalle || {}) }
+    }))
   }
 
   const autocompletarCurso = (cursoId, targetNota) => {
     const curso = cursos.find(c => c.id === cursoId)
     if (!curso) return
-    const det = { ...(simuladorLocal[cursoId] || curso.notas_detalle || {}) }
+    const detalleReal = curso.notas_detalle || {}
+    const det = { ...(simuladorLocal[cursoId] || detalleReal) }
     const sys = sistemasDict[curso.sistema_evaluacion || 'Libre']
     if (!sys) return
     const campos = parsearCamposRequeridos(sys)
-    
-    // Aquí filtramos usando notas_detalle (la BD) para asegurar que podamos sobrescribir notas simuladas previas
-    const vaciosReales = campos.filter(c => curso.notas_detalle[c.id] == null || curso.notas_detalle[c.id] === '')
-    if (vaciosReales.length === 0) return
+    const tieneES = campos.some(c => c.id === 'ES')
+    const camposRegulares = campos.filter(c => c.id !== 'ES')
 
-    const testMax = { ...det }; vaciosReales.forEach(c => testMax[c.id] = 20)
-    if ((evaluarSistema(sys, testMax) || 0) < targetNota) {
-      alert(`Matemáticamente imposible alcanzar ${targetNota} en ${curso.nombre}`)
+    // Filtrar campos regulares que estén verdaderamente vacíos en el simulador
+    const vaciosRegulares = camposRegulares.filter(c => det[c.id] === null || det[c.id] === undefined || det[c.id] === '')
+
+    const promActual = evaluarSistema(sys, det)
+    if (promActual !== null && promActual >= targetNota) {
+      alert(`¡Con tus notas y predicciones actuales ya alcanzas la meta de ${targetNota} en "${curso.nombre}" (Promedio: ${promActual})!`)
       return
     }
 
-    let lo = 0, hi = 20
-    for (let i = 0; i < 60; i++) {
-      const mid = (lo + hi) / 2
-      const testDet = { ...det }; vaciosReales.forEach(c => testDet[c.id] = mid)
-      if ((evaluarSistema(sys, testDet) || 0) < targetNota) lo = mid
-      else hi = mid
+    if (vaciosRegulares.length > 0) {
+      // 1. PRIMER INTENTO: Resolver usando SOLO exámenes regulares (sin susti)
+      const testMaxSinES = { ...det }
+      vaciosRegulares.forEach(c => testMaxSinES[c.id] = 20)
+      if (det.ES === null || det.ES === undefined || det.ES === '') delete testMaxSinES.ES
+
+      const maxSinES = evaluarSistema(sys, testMaxSinES) || 0
+      if (maxSinES >= targetNota) {
+        let lo = 0, hi = 20, minScore = 20
+        while (lo <= hi) {
+          const mid = Math.floor((lo + hi) / 2)
+          const testDet = { ...det }
+          vaciosRegulares.forEach(c => testDet[c.id] = mid)
+          if (det.ES === null || det.ES === undefined || det.ES === '') delete testDet.ES
+          if ((evaluarSistema(sys, testDet) || 0) >= targetNota) {
+            minScore = mid
+            hi = mid - 1
+          } else {
+            lo = mid + 1
+          }
+        }
+
+        const newDet = { ...det }
+        vaciosRegulares.forEach(c => newDet[c.id] = minScore)
+        if (det.ES === null || det.ES === undefined || det.ES === '') newDet.ES = ''
+        setSimuladorLocal(prev => ({ ...prev, [cursoId]: newDet }))
+        return
+      }
+
+      // 2. SEGUNDO INTENTO: Solo si regulares no alcanzan, activar Sustitutorio como última opción
+      if (tieneES) {
+        const testMaxConES = { ...testMaxSinES, ES: 20 }
+        const maxConES = evaluarSistema(sys, testMaxConES) || 0
+        if (maxConES >= targetNota) {
+          let loES = 0, hiES = 20, minES = 20
+          while (loES <= hiES) {
+            const midES = Math.floor((loES + hiES) / 2)
+            const testDet = { ...testMaxSinES, ES: midES }
+            if ((evaluarSistema(sys, testDet) || 0) >= targetNota) {
+              minES = midES
+              hiES = midES - 1
+            } else {
+              loES = midES + 1
+            }
+          }
+          const newDet = { ...testMaxSinES, ES: minES }
+          setSimuladorLocal(prev => ({ ...prev, [cursoId]: newDet }))
+          alert(`Para alcanzar ${targetNota} en "${curso.nombre}", en tu escenario actual no basta con exámenes ordinarios: necesitas 20 en lo restante y dar Sustitutorio con nota ≥ ${minES}.`)
+          return
+        }
+      }
+
+      alert(`Incluso con nota 20 en lo restante ${tieneES ? 'y Sustitutorio de 20' : ''}, es matemáticamente imposible alcanzar ${targetNota} en "${curso.nombre}" con tus notas actuales.`)
+      return
     }
-    const minVal = Math.ceil((lo + hi) / 2)
-    
-    const newDet = { ...det }; vaciosReales.forEach(c => newDet[c.id] = minVal)
-    setSimuladorLocal(prev => ({ ...prev, [cursoId]: newDet }))
+
+    // Si todos los campos regulares ya tienen nota, verificar si Sustitutorio puede salvarlo
+    if (tieneES) {
+      const testMaxES = { ...det, ES: 20 }
+      if ((evaluarSistema(sys, testMaxES) || 0) >= targetNota) {
+        let loES = 0, hiES = 20, minES = 20
+        while (loES <= hiES) {
+          const midES = Math.floor((loES + hiES) / 2)
+          const testDet = { ...det, ES: midES }
+          if ((evaluarSistema(sys, testDet) || 0) >= targetNota) {
+            minES = midES
+            hiES = midES - 1
+          } else {
+            loES = midES + 1
+          }
+        }
+        setSimuladorLocal(prev => ({ ...prev, [cursoId]: { ...det, ES: minES } }))
+        alert(`Con tus notas actuales, para alcanzar ${targetNota} en "${curso.nombre}" necesitas rendir el Sustitutorio con nota ≥ ${minES}.`)
+        return
+      } else {
+        alert(`Con las notas ingresadas en "${curso.nombre}", ni con un Sustitutorio de 20 es posible alcanzar ${targetNota}.`)
+        return
+      }
+    }
+
+    alert(`Todas las notas ya tienen valores en "${curso.nombre}" (promedio: ${promActual}). Si deseas simular, borra alguna nota o presiona el botón de reinicio ↺.`)
   }
 
-  const PRIORIDAD = ['EF', 'EP', 'MON2', 'MON1', 'LAB8', 'LAB7', 'LAB6', 'LAB5', 'LAB4', 'LAB3', 'LAB2', 'LAB1', 'PC4', 'PC3', 'PC2', 'PC1', 'PF']
-  const detectarCampoObjetivo = (detalleReal, camposReq) => {
+  const obtenerAnalisisObjetivo = (curso, det, sys, metaCurso) => {
+    if (!sys) return null
+    const campos = parsearCamposRequeridos(sys)
+    const tieneES = campos.some(c => c.id === 'ES')
+    const camposRegulares = campos.filter(c => c.id !== 'ES')
+    const promActual = evaluarSistema(sys, det)
+
+    // Evaluaciones regulares que aún no tienen valor en la simulación
+    const vaciosReg = camposRegulares.filter(c => det[c.id] === null || det[c.id] === undefined || det[c.id] === '')
+
+    // Encontrar campo prioritario vacío
+    let campoObj = null
     for (const pid of PRIORIDAD) {
-      const campo = camposReq.find(c => c.id === pid)
-      if (campo && (detalleReal[campo.id] == null || detalleReal[campo.id] === '')) return campo
+      const found = vaciosReg.find(v => v.id === pid)
+      if (found) { campoObj = found; break }
     }
-    return camposReq[camposReq.length - 1]
+    if (!campoObj && vaciosReg.length > 0) campoObj = vaciosReg[vaciosReg.length - 1]
+
+    const calcularPara = (targetNota) => {
+      if (promActual !== null && promActual >= targetNota) {
+        return { tipo: 'ya_cumplido' }
+      }
+
+      if (vaciosReg.length === 0) {
+        // Todo regular lleno: ¿se puede salvar con Susti?
+        if (tieneES && (det.ES === null || det.ES === undefined || det.ES === '')) {
+          const testES = { ...det, ES: 20 }
+          if ((evaluarSistema(sys, testES) || 0) >= targetNota) {
+            let lo = 0, hi = 20, minES = 20
+            while (lo <= hi) {
+              const mid = Math.floor((lo + hi) / 2)
+              if ((evaluarSistema(sys, { ...det, ES: mid }) || 0) >= targetNota) {
+                minES = mid; hi = mid - 1
+              } else { lo = mid + 1 }
+            }
+            return { tipo: 'susti_necesario', req: minES }
+          }
+        }
+        return { tipo: 'imposible' }
+      }
+
+      // Probar si alcanza sin Susti
+      const testMaxSinES = { ...det }
+      vaciosReg.forEach(v => testMaxSinES[v.id] = 20)
+      if (det.ES === null || det.ES === undefined || det.ES === '') delete testMaxSinES.ES
+      const maxSinES = evaluarSistema(sys, testMaxSinES) || 0
+
+      if (maxSinES >= targetNota) {
+        if (vaciosReg.length === 1) {
+          // Un solo campo regular vacío
+          const nec = resolverNecesario(sys, { ...det }, campoObj.id, targetNota)
+          return { tipo: 'regular_unico', campo: campoObj.id, req: nec }
+        } else {
+          // Múltiples regulares vacíos
+          let lo = 0, hi = 20, minScore = 20
+          while (lo <= hi) {
+            const mid = (lo + hi) / 2
+            const td = { ...det }
+            vaciosReg.forEach(v => td[v.id] = mid)
+            if (det.ES === null || det.ES === undefined || det.ES === '') delete td.ES
+            if ((evaluarSistema(sys, td) || 0) >= targetNota) {
+              minScore = mid
+              hi = mid - 0.1
+            } else {
+              lo = mid + 0.1
+            }
+          }
+          return {
+            tipo: 'regular_multiples',
+            req: Math.ceil(minScore * 10) / 10,
+            count: vaciosReg.length,
+            campoPrioritario: campoObj.id
+          }
+        }
+      }
+
+      // No alcanza en regulares. ¿Se puede con Susti de emergencia?
+      if (tieneES) {
+        const testMaxConES = { ...testMaxSinES, ES: 20 }
+        if ((evaluarSistema(sys, testMaxConES) || 0) >= targetNota) {
+          let lo = 0, hi = 20, minES = 20
+          while (lo <= hi) {
+            const mid = Math.floor((lo + hi) / 2)
+            const td = { ...testMaxSinES, ES: mid }
+            if ((evaluarSistema(sys, td) || 0) >= targetNota) {
+              minES = mid; hi = mid - 1
+            } else { lo = mid + 1 }
+          }
+          return { tipo: 'susti_necesario', req: minES }
+        }
+      }
+
+      return { tipo: 'imposible' }
+    }
+
+    return {
+      promActual,
+      analisisMeta: calcularPara(metaCurso),
+      analisisAprobar: calcularPara(NOTA_APROBATORIA)
+    }
   }
 
   // ---- CÁLCULOS GLOBALES ----
@@ -838,82 +1019,102 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
     const sugs = []
     if (!cursos.length || !Object.keys(sistemasDict).length) return sugs
 
-    const cursosEsfuerzo = []
-    const rutasOptimas = []
-    const zonasConfort = []
-
-    // ---- Algoritmos Predictivos Avanzados ----
-    cursos.forEach(c => {
-      const detalleReal = c.notas_detalle || {}
-      const sys = sistemasDict[c.sistema_evaluacion || 'Libre']
-      if (!sys) return
-      const camposReq = parsearCamposRequeridos(sys)
-      const campoObj = detectarCampoObjetivo(detalleReal, camposReq)
-      
-      // Imposibilidad matemática (Nota requerida > 20)
-      const best = { ...detalleReal }; camposReq.forEach(f => { if (best[f.id] == null || best[f.id] === '') best[f.id] = 20 })
-      if ((evaluarSistema(sys, best) || 0) < getMetaCurso(c.id)) {
-        sugs.push({ tipo: 'alerta', texto: `Meta Inalcanzable: Ya no podrás llegar a tu meta en "${c.nombre}" aunque saques 20 en todo lo que falta.` })
-      }
-
-      if (!campoObj) return
-
-      const necesarioMeta = resolverNecesario(sys, { ...detalleReal }, campoObj.id, getMetaCurso(c.id))
-      const necesarioAprobar = resolverNecesario(sys, { ...detalleReal }, campoObj.id, NOTA_APROBATORIA)
-
-      // Riesgo de Esfuerzo Desproporcionado (> 16)
-      if (necesarioMeta > 16 && necesarioMeta <= 20) {
-        cursosEsfuerzo.push({ curso: c, req: necesarioMeta, campo: campoObj.id })
-      }
-
-      // Ruta Óptima (<= 12)
-      if (necesarioAprobar > 0 && necesarioAprobar <= 12) {
-        rutasOptimas.push({ curso: c, req: necesarioAprobar, campo: campoObj.id, tipo: 'aprobar' })
-      } else if (necesarioMeta > 0 && necesarioMeta <= 12) {
-        rutasOptimas.push({ curso: c, req: necesarioMeta, campo: campoObj.id, tipo: 'meta' })
-      }
-
-      // Zona de Confort (necesarioAprobar == 0 y créditos >= 4)
-      if (necesarioAprobar === 0 && (c.creditos || 0) >= 4) {
-        zonasConfort.push(c)
-      }
-    })
-
-    if (cursosEsfuerzo.length > 0) {
-      const c = cursosEsfuerzo.sort((a, b) => b.req - a.req)[0]
-      sugs.push({ tipo: 'alerta', texto: `Riesgo de Sobreesfuerzo: Alcanzar tu meta en "${c.curso.nombre}" requiere un exigente ${c.req} en ${c.campo}. Considera reducir tu meta para no frustrarte.` })
-    }
-
-    if (rutasOptimas.length > 0) {
-      const ro = rutasOptimas.sort((a, b) => (b.curso.creditos || 0) - (a.curso.creditos || 0))[0]
-      sugs.push({ tipo: 'estrategia', texto: `Ruta Óptima: Con solo asegurar un ${ro.req} en ${ro.campo} de "${ro.curso.nombre}" lograrás ${ro.tipo === 'aprobar' ? 'salvar el curso' : 'tu meta'}. Enfoca tu energía aquí.` })
-    }
-
-    if (zonasConfort.length > 0) {
-      const zc = zonasConfort.sort((a, b) => (b.creditos || 0) - (a.creditos || 0))[0]
-      sugs.push({ tipo: 'oportunidad', texto: `Zona de Confort: Ya aprobaste "${zc.nombre}". Al tener ${zc.creditos} créditos, cualquier punto extra en tus próximos exámenes subirá masivamente tu ponderado general. ¡No te relajes!` })
-    }
-
-    // Impacto del Escenario Actual
+    // 1. Análisis de Impacto en Ponderado
     if (promedioSimulado && promedioGeneral) {
       const diff = (parseFloat(promedioSimulado) - parseFloat(promedioGeneral)).toFixed(1)
-      if (diff > 0.5) sugs.push({ tipo: 'positivo', texto: `Simulación Excelente: Con este escenario subirías ${diff} puntos tu ponderado del ciclo (${promedioGeneral} → ${promedioSimulado}).` })
-      else if (diff < -0.5) sugs.push({ tipo: 'alerta', texto: `Simulación Peligrosa: Este escenario bajaría ${Math.abs(diff)} puntos tu ponderado general.` })
+      if (parseFloat(diff) > 0.3) {
+        sugs.push({ tipo: 'positivo', texto: `📈 Impulso en Ponderado: Con este escenario elevarías tu promedio de ${promedioGeneral} a ${promedioSimulado} (+${diff} pts). ¡Excelente progreso!` })
+      } else if (parseFloat(diff) < -0.3) {
+        sugs.push({ tipo: 'alerta', texto: `📉 Descenso Detectado: Esta proyección reduciría tu ponderado de ${promedioGeneral} a ${promedioSimulado} (-${Math.abs(diff)} pts). Ajusta tus notas proyectadas hacia arriba.` })
+      } else {
+        sugs.push({ tipo: 'info', texto: `⚖️ Ponderado Equilibrado: Tu pronóstico se sitúa en ${promedioSimulado}, manteniéndose parejo con tu rendimiento histórico (${promedioGeneral}).` })
+      }
     }
 
-    const cursosEnMeta = cursos.filter(c => {
-      const simDet = simuladorLocal[c.id] || c.notas_detalle || {}
+    // 2. Estrategia de Sustitutorio (Susti como último recurso)
+    const cursosConSusti = []
+    cursos.forEach(c => {
+      const det = simuladorLocal[c.id] || c.notas_detalle || {}
+      if (det.ES !== undefined && det.ES !== null && det.ES !== '' && !isNaN(parseFloat(det.ES))) {
+        cursosConSusti.push({ curso: c, notaES: parseFloat(det.ES) })
+      }
+    })
+
+    if (cursosConSusti.length > 0) {
+      sugs.push({ 
+        tipo: 'estrategia', 
+        texto: `⚔️ Plan Sustitutorio: En "${cursosConSusti[0].curso.nombre}" proyectas rendir el Sustitutorio (ES: ${cursosConSusti[0].notaES}). Reemplazará tu evaluación más baja (Parcial o Final).` 
+      })
+    } else {
+      sugs.push({ 
+        tipo: 'positivo', 
+        texto: `🛡️ Rol Ordinario Limpio: Con tu simulación actual no requieres rendir Sustitutorio en ningún curso. Salvas tus materias en exámenes ordinarios.` 
+      })
+    }
+
+    // 3. Prioridad de Estudio por Créditos (Ponderado)
+    const cursosOrdenadosPorCred = [...cursos].sort((a,b) => (b.creditos || 0) - (a.creditos || 0))
+    const cursoPesado = cursosOrdenadosPorCred[0]
+    if (cursoPesado && (cursoPesado.creditos || 0) >= 4) {
+      const pct = creditosTotal > 0 ? Math.round(((cursoPesado.creditos || 0) / creditosTotal) * 100) : 0
+      sugs.push({ 
+        tipo: 'oportunidad', 
+        texto: `🎯 Foco Estratégico: "${cursoPesado.nombre}" tiene ${cursoPesado.creditos} créditos (${pct}% de tu ciclo). Cada punto aquí tiene el mayor impacto en tu ponderado global.` 
+      })
+    }
+
+    // 4. Detección de Cursos en Peligro de Desaprobación (< 10)
+    const cursosEnPeligro = cursos.filter(c => {
+      const det = simuladorLocal[c.id] || c.notas_detalle || {}
+      const sys = sistemasDict[c.sistema_evaluacion || 'Libre']
+      const p = sys ? evaluarSistema(sys, det) : parseFloat(c.promedio)
+      return p !== null && p < 10
+    })
+
+    if (cursosEnPeligro.length > 0) {
+      const cp = cursosEnPeligro[0]
+      const det = simuladorLocal[cp.id] || cp.notas_detalle || {}
+      const sys = sistemasDict[cp.sistema_evaluacion || 'Libre']
+      const notaActual = sys ? (evaluarSistema(sys, det) ?? '--') : '--'
+      sugs.push({ 
+        tipo: 'alerta', 
+        texto: `🚨 Atención Inmediata: "${cp.nombre}" tiene un promedio simulado de ${notaActual}. Utiliza el botón "Salvar (10)" para calcular tu nota mínima de rescate.` 
+      })
+    }
+
+    // 5. Verificación de Cumplimiento de Metas
+    const todosEnMeta = cursos.every(c => {
+      const det = simuladorLocal[c.id] || c.notas_detalle || {}
+      const sys = sistemasDict[c.sistema_evaluacion || 'Libre']
+      return sys ? (evaluarSistema(sys, det) || 0) >= getMetaCurso(c.id) : true
+    })
+
+    if (todosEnMeta && cursos.length > 0) {
+      sugs.push({ 
+        tipo: 'positivo', 
+        texto: `⚡ Victoria Total: ¡Todas tus materias alcanzan o superan su meta individual en este escenario! Mantén el plan de estudio.` 
+      })
+    }
+
+    // 6. Detección de Materias Aseguradas (Ya aprobadas)
+    const cursosSeguros = cursos.filter(c => {
       const sys = sistemasDict[c.sistema_evaluacion || 'Libre']
       if (!sys) return false
-      return (evaluarSistema(sys, simDet) || 0) >= getMetaCurso(c.id)
+      const campos = parsearCamposRequeridos(sys)
+      const worst = { ...(c.notas_detalle || {}) }
+      campos.forEach(f => { if (worst[f.id] == null || worst[f.id] === '') worst[f.id] = 0 })
+      return (evaluarSistema(sys, worst) || 0) >= 10.0
     })
-    
-    if (cursosEnMeta.length === cursos.length && cursos.length > 0) {
-      sugs.push({ tipo: 'positivo', texto: `¡Victoria Total! Todas tus materias alcanzan su meta con estas notas simuladas.` })
+
+    if (cursosSeguros.length > 0) {
+      sugs.push({ 
+        tipo: 'oportunidad', 
+        texto: `✅ Materia Asegurada: En "${cursosSeguros[0].nombre}" ya tienes la aprobación garantizada. Puedes destinar más horas a tus cursos más ajustados.` 
+      })
     }
 
     return sugs
-  }, [cursos, promedioSimulado, promedioGeneral, sistemasDict, simuladorLocal, getMetaCurso])
+  }, [cursos, promedioSimulado, promedioGeneral, sistemasDict, simuladorLocal, getMetaCurso, creditosTotal])
 
   return (
     <div className="min-h-screen bg-[#080c14] text-white font-sans overflow-x-hidden relative flex flex-col">
@@ -1137,31 +1338,41 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
 
       {/* SIMULADOR J.A.R.V.I.S. (MODAL INMERSIVO) */}
       {mostrarSimulador && (
-        <div className="fixed inset-0 bg-[#080c14]/95 backdrop-blur-md flex items-center justify-center z-50 p-4 lg:p-8">
-          <div className="bg-[#080c14] border border-cyan-500/20 rounded-3xl w-full max-w-[1600px] h-full flex flex-col overflow-hidden shadow-[0_0_80px_rgba(34,211,238,0.1)] relative">
+        <div className="fixed inset-0 bg-[#080c14]/95 backdrop-blur-md flex items-center justify-center z-50 p-2 sm:p-4 lg:p-6">
+          <div className="bg-[#080c14] border border-cyan-500/20 rounded-2xl sm:rounded-3xl w-full max-w-[1600px] h-[96vh] sm:h-[94vh] flex flex-col overflow-hidden shadow-[0_0_80px_rgba(34,211,238,0.1)] relative">
             <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/[0.07] via-transparent to-transparent pointer-events-none"/>
 
-            {/* Header Modal */}
-            <div className="flex flex-col md:flex-row justify-between items-center px-8 py-6 border-b border-white/[0.05] relative z-10 bg-[#080c14]/80 backdrop-blur-md">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"/>
-                <h3 className="text-sm md:text-base font-black tracking-[0.25em] uppercase text-cyan-400">J.A.R.V.I.S. Predictor Inmersivo</h3>
+            {/* Header Modal - Totalmente Responsive */}
+            <div className="flex flex-col md:flex-row justify-between items-center px-4 py-3 sm:px-8 sm:py-4 border-b border-white/[0.05] relative z-10 bg-[#080c14]/90 backdrop-blur-md gap-3 sm:gap-4 flex-shrink-0">
+              
+              {/* Título y botón cerrar en móvil */}
+              <div className="flex items-center justify-between w-full md:w-auto">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"/>
+                  <h3 className="text-xs sm:text-sm md:text-base font-black tracking-[0.2em] uppercase text-cyan-400">J.A.R.V.I.S. Predictor</h3>
+                </div>
+                <button 
+                  onClick={() => setMostrarSimulador(false)} 
+                  className="md:hidden text-slate-400 hover:text-white transition-colors text-2xl leading-none px-3 py-1 bg-white/5 rounded-xl hover:bg-white/10"
+                >
+                  ×
+                </button>
               </div>
 
-              {/* Gauge + Real vs Sim (Centrado) */}
-              <div className="flex flex-col lg:flex-row items-center gap-8 my-4 md:my-0">
-                <div className="scale-75 origin-center md:scale-100 flex items-center justify-center">
+              {/* Gauge + Métricas Real vs Simulado */}
+              <div className="flex items-center justify-center gap-3 sm:gap-6 my-1 sm:my-0 w-full md:w-auto">
+                <div className="scale-[0.70] sm:scale-85 md:scale-95 origin-center flex items-center justify-center -my-3 sm:my-0">
                   <CircularGauge value={promedioSimulado} />
                 </div>
                 {promedioGeneral && (
-                  <div className="flex items-center gap-5 text-center">
-                    <div>
-                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Real</p>
-                      <p className={`text-2xl font-black ${notaColor(promedioGeneral).text}`}>{promedioGeneral}</p>
+                  <div className="flex items-center gap-2 sm:gap-4 text-center">
+                    <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl px-2.5 py-1.5 sm:px-3.5 sm:py-2">
+                      <p className="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase tracking-widest">Real</p>
+                      <p className={`text-base sm:text-xl font-black ${notaColor(promedioGeneral).text}`}>{promedioGeneral}</p>
                     </div>
                     <div className="flex flex-col items-center">
-                      <svg className="w-6 h-6 text-slate-600 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
-                      <span className={`text-xs font-black ${
+                      <svg className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600 mb-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+                      <span className={`text-[10px] sm:text-xs font-black ${
                         promedioSimulado && parseFloat(promedioSimulado) > parseFloat(promedioGeneral) ? 'text-emerald-400'
                         : promedioSimulado && parseFloat(promedioSimulado) < parseFloat(promedioGeneral) ? 'text-red-400'
                         : 'text-slate-500'
@@ -1169,28 +1380,34 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
                         {promedioSimulado ? `${parseFloat(promedioSimulado) >= parseFloat(promedioGeneral) ? '+' : ''}${(parseFloat(promedioSimulado) - parseFloat(promedioGeneral)).toFixed(1)}` : '--'}
                       </span>
                     </div>
-                    <div>
-                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Simulado</p>
-                      <p className={`text-2xl font-black ${notaColor(promedioSimulado).text}`}>{promedioSimulado ?? '--'}</p>
+                    <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl px-2.5 py-1.5 sm:px-3.5 sm:py-2">
+                      <p className="text-[8px] sm:text-[9px] text-slate-500 font-bold uppercase tracking-widest">Simulado</p>
+                      <p className={`text-base sm:text-xl font-black ${notaColor(promedioSimulado).text}`}>{promedioSimulado ?? '--'}</p>
                     </div>
                   </div>
                 )}
               </div>
 
-              <button onClick={() => setMostrarSimulador(false)} className="text-slate-600 hover:text-white transition-colors text-3xl leading-none px-4 py-2 bg-white/5 rounded-xl hover:bg-white/10">×</button>
+              {/* Botón cerrar en desktop */}
+              <button 
+                onClick={() => setMostrarSimulador(false)} 
+                className="hidden md:block text-slate-500 hover:text-white transition-colors text-2xl leading-none px-3.5 py-1.5 bg-white/5 rounded-xl hover:bg-white/10"
+              >
+                ×
+              </button>
             </div>
 
-            {/* Cursos y Sugerencias */}
-            <div className="overflow-y-auto custom-scrollbar flex-1 p-6 md:p-8 relative z-10 flex flex-col gap-8">
+            {/* Contenido Scrollable */}
+            <div className="overflow-y-auto custom-scrollbar flex-1 p-3 sm:p-6 md:p-8 relative z-10 flex flex-col gap-4 sm:gap-6">
               
-              {/* Sugerencias JARVIS (Tira Horizontal) */}
+              {/* Sugerencias JARVIS */}
               {sugerencias.length > 0 && (
-                <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2.5">
                   <p className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.25em] flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"/>
-                    Insights Predictivos
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                    Insights Predictivos J.A.R.V.I.S.
                   </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3.5">
                     {sugerencias.map((sug, i) => {
                       const styles = {
                         positivo: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20 shadow-emerald-500/5',
@@ -1200,16 +1417,16 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
                         info: 'text-slate-300 bg-white/[0.05] border-white/[0.1]'
                       }
                       const icons = {
-                        positivo: <svg className="w-5 h-5 text-emerald-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/></svg>,
-                        alerta: <svg className="w-5 h-5 text-red-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>,
-                        estrategia: <svg className="w-5 h-5 text-cyan-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>,
-                        oportunidad: <svg className="w-5 h-5 text-amber-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>,
-                        info: <svg className="w-5 h-5 text-slate-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        positivo: <svg className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/></svg>,
+                        alerta: <svg className="w-4 h-4 sm:w-5 sm:h-5 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>,
+                        estrategia: <svg className="w-4 h-4 sm:w-5 sm:h-5 text-cyan-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>,
+                        oportunidad: <svg className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>,
+                        info: <svg className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                       }
                       return (
-                        <div key={i} className={`flex items-start gap-3 p-4 rounded-2xl border w-full shadow-lg transition-transform hover:-translate-y-0.5 ${styles[sug.tipo] || styles.info}`}>
-                          <div className="flex-shrink-0 bg-black/20 rounded-full p-1.5">{icons[sug.tipo] || icons.info}</div>
-                          <div className="text-xs leading-relaxed font-bold tracking-wide">{sug.texto}</div>
+                        <div key={i} className={`flex items-start gap-2.5 sm:gap-3 p-3 sm:p-4 rounded-xl sm:rounded-2xl border w-full shadow-lg transition-transform hover:-translate-y-0.5 ${styles[sug.tipo] || styles.info}`}>
+                          <div className="flex-shrink-0 bg-black/20 rounded-full p-1 sm:p-1.5">{icons[sug.tipo] || icons.info}</div>
+                          <div className="text-[11px] sm:text-xs leading-relaxed font-bold tracking-wide">{sug.texto}</div>
                         </div>
                       )
                     })}
@@ -1219,7 +1436,7 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
 
               {/* Grilla de Cursos */}
               <div className="flex-1">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5 sm:gap-5">
                   {cursos.length === 0 ? (
                     <div className="col-span-full">
                       <p className="text-sm text-slate-500 text-center py-20">Matricula cursos para simular</p>
@@ -1234,10 +1451,7 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
                     const promCurso = evaluarSistema(sys, det)
                     const promFmt = promCurso?.toFixed(1) ?? '--'
                     const metaCurso = getMetaCurso(curso.id)
-                    const riesgo = calcularRiesgo(detalleReal, sys, camposReq, metaCurso)
-                    const campoObj = detectarCampoObjetivo(detalleReal, camposReq)
-                    const necesarioMeta = campoObj ? resolverNecesario(sys, { ...detalleReal }, campoObj.id, metaCurso) : null
-                    const necesarioAprobar = campoObj ? resolverNecesario(sys, { ...detalleReal }, campoObj.id, NOTA_APROBATORIA) : null
+                    const riesgo = calcularRiesgo(det, sys, camposReq, metaCurso)
 
                     const riesgoBadge = {
                       meta:    { label: `Meta ${metaCurso}`, cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
@@ -1247,72 +1461,97 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
                       unknown: { label: '?', cls: 'text-slate-500 bg-white/5 border-white/10' },
                     }[riesgo]
 
+                    const analisis = obtenerAnalisisObjetivo(curso, det, sys, metaCurso)
+
                     return (
-                      <div key={curso.id} className="group bg-white/[0.02] border border-white/[0.06] rounded-2xl p-6 hover:border-cyan-500/30 transition-all duration-300 relative flex flex-col overflow-hidden shadow-xl shadow-black/20 hover:shadow-cyan-500/5">
+                      <div key={curso.id} className="group bg-white/[0.02] border border-white/[0.06] rounded-xl sm:rounded-2xl p-3.5 sm:p-5 hover:border-cyan-500/30 transition-all duration-300 relative flex flex-col overflow-hidden shadow-xl shadow-black/20 hover:shadow-cyan-500/5">
                         
                         {/* Borde superior glow de riesgo */}
                         <div className="absolute top-0 left-0 right-0 h-1 opacity-60 group-hover:opacity-100 transition-opacity" style={{ backgroundColor: riesgoBadge.cls.includes('emerald') ? '#10b981' : riesgoBadge.cls.includes('amber') ? '#f59e0b' : riesgoBadge.cls.includes('red') ? '#ef4444' : '#22d3ee' }}></div>
 
-                        <div className="flex justify-between items-start mb-5 gap-4">
-                          <h3 className="text-xl font-black text-white uppercase leading-tight truncate" title={curso.nombre}>{curso.nombre}</h3>
-                          <span className={`text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md border flex-shrink-0 ${riesgoBadge.cls}`}>
+                        <div className="flex justify-between items-start mb-3 sm:mb-4 gap-2">
+                          <h3 className="text-base sm:text-lg font-black text-white uppercase leading-tight truncate" title={curso.nombre}>{curso.nombre}</h3>
+                          <span className={`text-[8px] sm:text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md border flex-shrink-0 ${riesgoBadge.cls}`}>
                             {riesgoBadge.label}
                           </span>
                         </div>
                         
                         {/* Meta y Nota simulada integrada */}
-                        <div className="flex items-center justify-between bg-white/[0.02] border border-white/[0.04] rounded-xl p-3.5 mb-5 shadow-inner">
+                        <div className="flex items-center justify-between bg-white/[0.02] border border-white/[0.04] rounded-xl p-2.5 sm:p-3 mb-2.5 sm:mb-3 shadow-inner">
                           <div className="flex flex-col">
-                            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1">Nota Sim.</span>
-                            <span className={`text-3xl font-black leading-none ${notaColor(promFmt).text}`}>{promFmt}</span>
+                            <span className="text-[8px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-0.5">Nota Sim.</span>
+                            <span className={`text-2xl sm:text-3xl font-black leading-none ${notaColor(promFmt).text}`}>{promFmt}</span>
                           </div>
-                          <div className="w-px h-10 bg-white/10"></div>
+                          <div className="w-px h-8 bg-white/10"></div>
                           <div className="flex flex-col items-end">
-                            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-1">Tu Meta</span>
+                            <span className="text-[8px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-0.5">Tu Meta</span>
                             <input
                               type="number" min="0" max="20" step="0.5"
                               value={metaCurso}
                               onClick={e => e.stopPropagation()}
                               onChange={e => setMetaCurso(curso.id, parseFloat(e.target.value) || 0)}
-                              className="w-16 bg-white/[0.05] text-cyan-400 font-black text-xl rounded-lg px-2 py-1 outline-none text-center border border-white/[0.08] focus:border-cyan-500/50 transition-colors"
+                              className="w-14 sm:w-16 bg-white/[0.05] text-cyan-400 font-black text-lg sm:text-xl rounded-lg px-1.5 py-0.5 outline-none text-center border border-white/[0.08] focus:border-cyan-500/50 transition-colors"
                             />
                           </div>
                         </div>
 
-                        {/* Calculadora inversa */}
-                        <div className="space-y-2 mb-6">
-                          {campoObj && necesarioMeta !== null && (
-                            <div className={`text-[10px] font-bold px-3 py-2.5 rounded-lg flex items-center gap-2.5 ${
-                              necesarioMeta === 0 ? 'text-emerald-400 bg-emerald-500/10'
-                              : necesarioMeta === Infinity ? 'text-slate-400 bg-white/5'
-                              : 'text-cyan-400 bg-cyan-500/10'
-                            }`}>
-                              <div className={`w-1.5 h-1.5 flex-shrink-0 rounded-full ${necesarioMeta === 0 ? 'bg-emerald-400' : necesarioMeta === Infinity ? 'bg-slate-400' : 'bg-cyan-400 animate-pulse'}`}></div>
-                              <span>
-                                {necesarioMeta === 0 && `✓ Ya alcanzas tu meta de ${metaCurso}`}
-                                {necesarioMeta === Infinity && `Meta inalcanzable en ${campoObj.id}`}
-                                {necesarioMeta > 0 && necesarioMeta < Infinity && `Para lograr ${metaCurso}: necesitas ≥ ${necesarioMeta} en ${campoObj.id}`}
-                              </span>
-                            </div>
-                          )}
-                          {campoObj && necesarioAprobar !== null && necesarioMeta !== 0 && (
-                            <div className={`text-[10px] font-bold px-3 py-2.5 rounded-lg flex items-center gap-2.5 ${
-                              necesarioAprobar === 0 ? 'text-emerald-400 bg-emerald-500/10'
-                              : necesarioAprobar === Infinity ? 'text-red-400 bg-red-500/10'
-                              : 'text-amber-400 bg-amber-500/10'
-                            }`}>
-                              <div className={`w-1.5 h-1.5 flex-shrink-0 rounded-full ${necesarioAprobar === 0 ? 'bg-emerald-400' : necesarioAprobar === Infinity ? 'bg-red-400' : 'bg-amber-400 animate-pulse'}`}></div>
-                              <span>
-                                {necesarioAprobar === 0 && '✓ Ya apruebas el curso'}
-                                {necesarioAprobar === Infinity && `✗ Imposible aprobar`}
-                                {necesarioAprobar > 0 && necesarioAprobar < Infinity && `Para salvar (10): necesitas ≥ ${necesarioAprobar} en ${campoObj.id}`}
-                              </span>
-                            </div>
-                          )}
-                        </div>
+                        {/* Calculadora inversa Dinámica y Reactiva */}
+                        {analisis && (() => {
+                          const { analisisMeta, analisisAprobar, promActual } = analisis
+                          const yaAprobado = promActual !== null && promActual >= 10.0
+                          const yaMeta = promActual !== null && promActual >= metaCurso
 
-                        {/* Data Entry Premium numérico */}
-                        <div className="grid grid-cols-2 gap-3 mt-auto pt-4">
+                          return (
+                            <div className="space-y-1.5 mb-2.5 sm:mb-3">
+                              {/* Badge Meta */}
+                              <div className={`text-[9px] sm:text-[10px] font-bold px-2.5 py-2 rounded-lg flex items-center gap-2 ${
+                                yaMeta ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20'
+                                : analisisMeta.tipo === 'imposible' ? 'text-slate-400 bg-white/5 border border-white/10'
+                                : analisisMeta.tipo === 'susti_necesario' ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                                : 'text-cyan-400 bg-cyan-500/10 border border-cyan-500/20'
+                              }`}>
+                                <div className={`w-1.5 h-1.5 flex-shrink-0 rounded-full ${
+                                  yaMeta ? 'bg-emerald-400'
+                                  : analisisMeta.tipo === 'imposible' ? 'bg-slate-500'
+                                  : analisisMeta.tipo === 'susti_necesario' ? 'bg-amber-400 animate-pulse'
+                                  : 'bg-cyan-400 animate-pulse'
+                                }`}></div>
+                                <span className="truncate">
+                                  {yaMeta && `✓ Ya alcanzas tu meta de ${metaCurso}`}
+                                  {!yaMeta && analisisMeta.tipo === 'regular_unico' && `Para meta (${metaCurso}): necesitas ≥ ${analisisMeta.req} en ${analisisMeta.campo}`}
+                                  {!yaMeta && analisisMeta.tipo === 'regular_multiples' && `Para meta (${metaCurso}): promediar ≥ ${analisisMeta.req} en ${analisisMeta.count} pend.`}
+                                  {!yaMeta && analisisMeta.tipo === 'susti_necesario' && `Para meta (${metaCurso}): requiere Sustitutorio (ES ≥ ${analisisMeta.req})`}
+                                  {!yaMeta && analisisMeta.tipo === 'imposible' && `Meta de ${metaCurso} inalcanzable`}
+                                </span>
+                              </div>
+
+                              {/* Badge Aprobar / Salvar */}
+                              {!yaMeta && (
+                                <div className={`text-[9px] sm:text-[10px] font-bold px-2.5 py-2 rounded-lg flex items-center gap-2 ${
+                                  yaAprobado ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20'
+                                  : analisisAprobar.tipo === 'imposible' ? 'text-red-400 bg-red-500/10 border border-red-500/20'
+                                  : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                                }`}>
+                                  <div className={`w-1.5 h-1.5 flex-shrink-0 rounded-full ${
+                                    yaAprobado ? 'bg-emerald-400'
+                                    : analisisAprobar.tipo === 'imposible' ? 'bg-red-400'
+                                    : 'bg-amber-400 animate-pulse'
+                                  }`}></div>
+                                  <span className="truncate">
+                                    {yaAprobado && `✓ Con este pronóstico apruebas (Nota: ${promActual})`}
+                                    {!yaAprobado && analisisAprobar.tipo === 'regular_unico' && `Para salvar (10): necesitas ≥ ${analisisAprobar.req} en ${analisisAprobar.campo}`}
+                                    {!yaAprobado && analisisAprobar.tipo === 'regular_multiples' && `Para salvar (10): promediar ≥ ${analisisAprobar.req} en ${analisisAprobar.count} pend.`}
+                                    {!yaAprobado && analisisAprobar.tipo === 'susti_necesario' && `Para salvar (10): requiere Sustitutorio (ES ≥ ${analisisAprobar.req})`}
+                                    {!yaAprobado && analisisAprobar.tipo === 'imposible' && `✗ Imposible salvar el curso`}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })()}
+
+                        {/* Data Entry Compacto & Cómodo para Móviles */}
+                        <div className="grid grid-cols-2 gap-2 mt-auto pt-2">
                           {camposReq.map(campo => {
                             const realVal = detalleReal[campo.id]
                             const isReal = realVal != null && realVal !== ''
@@ -1323,9 +1562,11 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
                             const borderClass = isReal ? 'border-white/[0.02]' : 'border-white/[0.05] hover:border-cyan-500/30'
                             const bgClass = isReal ? 'bg-black/40' : 'bg-white/[0.03]'
                             return (
-                              <div key={campo.id} className={`relative group ${bgClass} border ${borderClass} rounded-xl p-3 transition-all flex items-center justify-between overflow-hidden`}>
+                              <div key={campo.id} className={`relative group ${bgClass} border ${borderClass} rounded-lg sm:rounded-xl p-2 sm:p-2.5 transition-all flex items-center justify-between overflow-hidden`}>
                                 <div className="absolute inset-0 opacity-10 pointer-events-none transition-all" style={{ backgroundColor: color, width: isEmpty ? '0%' : `${(numVal/20)*100}%` }}></div>
-                                <span className={`text-[11px] font-black uppercase relative z-10 ${isReal ? 'text-slate-500' : 'text-slate-400'}`}>{campo.id} {isReal && '🔒'}</span>
+                                <span className={`text-[10px] sm:text-[11px] font-black uppercase relative z-10 truncate mr-1 ${isReal ? 'text-slate-500' : 'text-slate-300'}`}>
+                                  {campo.id} {isReal && <span title="Nota oficial bloqueada">🔒</span>}
+                                </span>
                                 <input
                                   type="number" min="0" max="20" step="1"
                                   disabled={isReal}
@@ -1336,7 +1577,7 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
                                     const v = e.target.value
                                     setSimuladorLocal(prev => ({ ...prev, [curso.id]: { ...prev[curso.id], [campo.id]: v === '' ? '' : parseInt(v) } }))
                                   }}
-                                  className="w-14 bg-transparent text-right font-black text-base outline-none relative z-10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  className="w-10 sm:w-12 bg-transparent text-right font-black text-sm sm:text-base outline-none relative z-10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                                   style={{ color: isEmpty ? '#94a3b8' : color }}
                                 />
                               </div>
@@ -1344,13 +1585,29 @@ export default function DashboardAlumno({ esAdmin: esAdminProp }) {
                           })}
                         </div>
 
-                        {/* Botones de Autocompletado */}
-                        <div className="flex gap-2 mt-4">
-                          <button onClick={() => autocompletarCurso(curso.id, NOTA_APROBATORIA)} className="flex-1 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors">
+                        {/* Botones de Autocompletado y Reset */}
+                        <div className="flex gap-1.5 sm:gap-2 mt-3 sm:mt-4">
+                          <button 
+                            type="button"
+                            onClick={() => autocompletarCurso(curso.id, NOTA_APROBATORIA)} 
+                            className="flex-1 py-2 px-1 text-[9px] sm:text-[10px] font-black uppercase tracking-wider rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-all cursor-pointer text-center"
+                          >
                             Salvar (10)
                           </button>
-                          <button onClick={() => autocompletarCurso(curso.id, metaCurso)} className="flex-1 py-1.5 text-[8px] font-black uppercase tracking-wider rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors">
+                          <button 
+                            type="button"
+                            onClick={() => autocompletarCurso(curso.id, metaCurso)} 
+                            className="flex-1 py-2 px-1 text-[9px] sm:text-[10px] font-black uppercase tracking-wider rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all cursor-pointer text-center"
+                          >
                             Lograr Meta
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => reiniciarCursoSimulado(curso.id)} 
+                            className="py-2 px-2.5 text-[11px] font-black rounded-lg bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-white/10 transition-all cursor-pointer"
+                            title="Restablecer este curso a sus notas reales"
+                          >
+                            ↺
                           </button>
                         </div>
                       </div>
